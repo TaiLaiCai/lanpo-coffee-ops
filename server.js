@@ -3,11 +3,14 @@ import OpenAI from "openai";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const provider = process.env.MINIMAX_API_KEY
-  ? "minimax"
-  : process.env.OPENAI_API_KEY
-    ? "openai"
-    : "local-fallback";
+const providerError = validateProviderConfig();
+const provider = providerError
+  ? "invalid-config"
+  : process.env.MINIMAX_API_KEY
+    ? "minimax"
+    : process.env.OPENAI_API_KEY
+      ? "openai"
+      : "local-fallback";
 const model =
   provider === "minimax"
     ? process.env.MINIMAX_MODEL || "MiniMax-M2.7"
@@ -24,6 +27,29 @@ const client =
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(process.cwd(), { extensions: ["html"] }));
+
+function validateKey(name, value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value !== value.trim()) {
+    return `${name} 前后有空格或换行`;
+  }
+
+  if (!/^[\x21-\x7E]+$/.test(value)) {
+    return `${name} 包含非英文字符，请确认不是中文占位符`;
+  }
+
+  return null;
+}
+
+function validateProviderConfig() {
+  return (
+    validateKey("MINIMAX_API_KEY", process.env.MINIMAX_API_KEY) ||
+    validateKey("OPENAI_API_KEY", process.env.OPENAI_API_KEY)
+  );
+}
 
 const agentInstructions = {
   data: `你是蓝珀咖啡的数据复盘 Agent。
@@ -213,10 +239,47 @@ ${product}
 
 app.get("/api/health", (_req, res) => {
   res.json({
-    ok: true,
+    ok: !providerError,
     mode: client ? `${provider}-agents` : "local-fallback",
     model: client ? model : null,
+    provider,
+    configured: {
+      minimax: Boolean(process.env.MINIMAX_API_KEY),
+      openai: Boolean(process.env.OPENAI_API_KEY),
+    },
+    error: providerError,
   });
+});
+
+app.get("/api/agent-check", async (_req, res) => {
+  if (providerError) {
+    res.status(400).json({ ok: false, provider, error: providerError });
+    return;
+  }
+
+  if (!client) {
+    res.status(400).json({
+      ok: false,
+      provider: "local-fallback",
+      error: "没有配置 MINIMAX_API_KEY 或 OPENAI_API_KEY",
+    });
+    return;
+  }
+
+  try {
+    const result = await runAgent(
+      "service",
+      {
+        question: "减脂期能喝拿铁吗？",
+        metrics: normalizeMetrics({ weather: "晴天", revenue: 2680, cups: 96, ticket: 28 }),
+      },
+      `{ "question": "顾客问题", "reply": "可直接发送的回复" }`,
+    );
+
+    res.json({ ok: true, provider, model, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, provider, model, error: error.message });
+  }
 });
 
 app.post("/api/workflows/daily", async (req, res) => {
