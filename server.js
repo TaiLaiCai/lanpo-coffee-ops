@@ -15,15 +15,8 @@ const model =
   provider === "minimax"
     ? process.env.MINIMAX_MODEL || "MiniMax-M2.7"
     : process.env.OPENAI_MODEL || "gpt-5.2";
-const client =
-  provider === "minimax"
-    ? new OpenAI({
-        apiKey: process.env.MINIMAX_API_KEY,
-        baseURL: process.env.MINIMAX_BASE_URL || "https://api.minimax.io/v1",
-      })
-    : provider === "openai"
-      ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-      : null;
+const client = provider === "openai" ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const agentTimeoutMs = Number(process.env.AGENT_TIMEOUT_MS || 45000);
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(process.cwd(), { extensions: ["html"] }));
@@ -106,9 +99,68 @@ function extractJson(text) {
   }
 }
 
+function minimaxEndpoint() {
+  if (process.env.MINIMAX_ENDPOINT) {
+    return process.env.MINIMAX_ENDPOINT;
+  }
+
+  const baseURL = (process.env.MINIMAX_BASE_URL || "https://api.minimaxi.com/v1").replace(/\/$/, "");
+  return process.env.MINIMAX_API_MODE === "openai"
+    ? `${baseURL}/chat/completions`
+    : `${baseURL}/text/chatcompletion_v2`;
+}
+
+async function postJsonWithTimeout(url, body, headers) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), agentTimeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`MiniMax HTTP ${response.status}: ${text.slice(0, 500)}`);
+    }
+
+    return JSON.parse(text);
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`MiniMax request timed out after ${agentTimeoutMs}ms: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function callMiniMax(messages) {
+  const endpoint = minimaxEndpoint();
+  const isOpenAICompatible = endpoint.endsWith("/chat/completions");
+  const body = {
+    model,
+    messages: isOpenAICompatible
+      ? messages
+      : messages.map((message) => ({ ...message, name: message.role === "system" ? "MiniMax AI" : "User" })),
+    temperature: 0.7,
+    max_tokens: 2048,
+  };
+
+  const response = await postJsonWithTimeout(endpoint, body, {
+    Authorization: `Bearer ${process.env.MINIMAX_API_KEY}`,
+    "Content-Type": "application/json",
+  });
+
+  return extractJson(response.choices?.[0]?.message?.content || "");
+}
+
 async function runAgent(name, payload, schemaHint) {
-  if (!client) {
-    throw new Error("MINIMAX_API_KEY or OPENAI_API_KEY is not configured.");
+  if (provider === "local-fallback" || provider === "invalid-config") {
+    throw new Error("MINIMAX_API_KEY or OPENAI_API_KEY is not configured correctly.");
   }
 
   const systemPrompt = `${agentInstructions[name]}
@@ -135,23 +187,16 @@ ${schemaHint}`;
     return extractJson(response.output_text || "");
   }
 
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: JSON.stringify(payload, null, 2),
-      },
-    ],
-    temperature: 0.7,
-    max_completion_tokens: 2048,
-  });
-
-  return extractJson(response.choices?.[0]?.message?.content || "");
+  return callMiniMax([
+    {
+      role: "system",
+      content: systemPrompt,
+    },
+    {
+      role: "user",
+      content: JSON.stringify(payload, null, 2),
+    },
+  ]);
 }
 
 function localFallback(metrics, question = "减脂期能喝拿铁吗？") {
@@ -240,8 +285,8 @@ ${product}
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: !providerError,
-    mode: client ? `${provider}-agents` : "local-fallback",
-    model: client ? model : null,
+    mode: provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback",
+    model: provider === "minimax" || provider === "openai" ? model : null,
     provider,
     configured: {
       minimax: Boolean(process.env.MINIMAX_API_KEY),
@@ -257,7 +302,7 @@ app.get("/api/agent-check", async (_req, res) => {
     return;
   }
 
-  if (!client) {
+  if (provider === "local-fallback") {
     res.status(400).json({
       ok: false,
       provider: "local-fallback",
@@ -286,7 +331,7 @@ app.post("/api/workflows/daily", async (req, res) => {
   const metrics = normalizeMetrics(req.body || {});
   const question = field(req.body?.question, "减脂期能喝拿铁吗？");
 
-  if (!client) {
+  if (provider === "local-fallback" || provider === "invalid-config") {
     res.json(localFallback(metrics, question));
     return;
   }
@@ -344,7 +389,7 @@ app.post("/api/workflows/customer", async (req, res) => {
   const metrics = normalizeMetrics(req.body || {});
   const question = field(req.body?.question, "减脂期能喝拿铁吗？");
 
-  if (!client) {
+  if (provider === "local-fallback" || provider === "invalid-config") {
     res.json(localFallback(metrics, question).serviceAgent);
     return;
   }

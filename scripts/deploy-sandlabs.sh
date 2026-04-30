@@ -39,7 +39,7 @@ if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^(MINIMAX_API_KEY|OPENAI_API_KEY)=' "
   echo
   cat > "$APP_DIR/.env" <<ENV
 MINIMAX_API_KEY=$MINIMAX_API_KEY
-MINIMAX_BASE_URL=https://api.minimax.io/v1
+MINIMAX_BASE_URL=https://api.minimaxi.com/v1
 MINIMAX_MODEL=MiniMax-M2.7
 PORT=$PORT
 ENV
