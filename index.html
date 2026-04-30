@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>蓝珀咖啡运营中控</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">B</span>
+          <div>
+            <strong>蓝珀咖啡</strong>
+            <span>运营中控 MVP</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <a href="#dashboard" class="active">今日中控</a>
+          <a href="#agents">Agent 分工</a>
+          <a href="#report">运营日报</a>
+          <a href="#workflow">工作流</a>
+        </nav>
+
+        <section class="side-panel">
+          <p class="eyebrow">系统状态</p>
+          <h2>5 个核心 Agent 已就绪</h2>
+          <p>适合先跑通每日复盘、内容、产品、客服和数据判断。</p>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar" id="dashboard">
+          <div>
+            <p class="eyebrow">店长大脑</p>
+            <h1>蓝珀咖啡每日运营中控</h1>
+          </div>
+          <button class="primary-action" id="generateAll" type="button">
+            生成今日方案
+          </button>
+        </header>
+
+        <section class="metrics" aria-label="经营关键数据">
+          <label>
+            <span>昨日营业额</span>
+            <input id="revenue" type="number" min="0" value="2680" />
+          </label>
+          <label>
+            <span>昨日杯量</span>
+            <input id="cups" type="number" min="0" value="96" />
+          </label>
+          <label>
+            <span>客单价</span>
+            <input id="ticket" type="number" min="0" value="28" />
+          </label>
+          <label>
+            <span>小红书浏览</span>
+            <input id="views" type="number" min="0" value="1240" />
+          </label>
+          <label>
+            <span>收藏评论</span>
+            <input id="engagement" type="number" min="0" value="68" />
+          </label>
+          <label>
+            <span>天气</span>
+            <select id="weather">
+              <option>晴天</option>
+              <option>阴天</option>
+              <option>小雨</option>
+              <option>高温</option>
+              <option>降温</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="control-grid">
+          <article class="module wide">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">总控 Agent</p>
+                <h2>今日经营判断</h2>
+              </div>
+              <span class="status">自动生成</span>
+            </div>
+            <div class="output" id="managerOutput"></div>
+          </article>
+
+          <article class="module">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">内容运营 Agent</p>
+                <h2>今日小红书 / 抖音</h2>
+              </div>
+            </div>
+            <div class="output" id="contentOutput"></div>
+          </article>
+
+          <article class="module">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">咖啡产品 Agent</p>
+                <h2>今日主推产品</h2>
+              </div>
+            </div>
+            <div class="output" id="productOutput"></div>
+          </article>
+        </section>
+
+        <section class="agents" id="agents">
+          <div class="section-title">
+            <p class="eyebrow">协作架构</p>
+            <h2>蓝珀咖啡 5 Agent MVP</h2>
+          </div>
+          <div class="agent-grid">
+            <article>
+              <span>01</span>
+              <h3>店长总控 Agent</h3>
+              <p>接收目标、拆分任务、汇总每日行动清单。</p>
+            </article>
+            <article>
+              <span>02</span>
+              <h3>内容运营 Agent</h3>
+              <p>输出选题、标题、口播稿、正文和评论引导。</p>
+            </article>
+            <article>
+              <span>03</span>
+              <h3>咖啡产品 Agent</h3>
+              <p>校验咖啡知识、推荐产品组合、判断成本和场景。</p>
+            </article>
+            <article>
+              <span>04</span>
+              <h3>私域客服 Agent</h3>
+              <p>生成微信、社群、评论区的专业回复与转化话术。</p>
+            </article>
+            <article>
+              <span>05</span>
+              <h3>数据复盘 Agent</h3>
+              <p>读取经营与内容数据，发现问题并触发预警。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="two-column">
+          <article class="module" id="report">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">每日模板</p>
+                <h2>蓝珀咖啡运营日报</h2>
+              </div>
+              <button class="ghost-action" id="copyReport" type="button">复制</button>
+            </div>
+            <pre class="report" id="dailyReport"></pre>
+          </article>
+
+          <article class="module">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">私域客服 Agent</p>
+                <h2>顾客咨询回复</h2>
+              </div>
+            </div>
+            <label class="textarea-label">
+              顾客问题
+              <textarea id="customerQuestion">减脂期能喝拿铁吗？</textarea>
+            </label>
+            <button class="secondary-action" id="answerQuestion" type="button">
+              生成回复
+            </button>
+            <div class="output compact" id="serviceOutput"></div>
+          </article>
+        </section>
+
+        <section class="workflow" id="workflow">
+          <div class="section-title">
+            <p class="eyebrow">工作流</p>
+            <h2>从数据到执行清单</h2>
+          </div>
+          <ol>
+            <li><strong>每日晨会：</strong>昨日复盘、天气判断、主推产品、内容选题、员工动作。</li>
+            <li><strong>内容生产：</strong>内容 Agent 起稿，产品 Agent 校验，店长总控汇总。</li>
+            <li><strong>客户咨询：</strong>客服 Agent 生成友好话术，产品 Agent 补充专业判断。</li>
+            <li><strong>经营预警：</strong>连续低迷时触发活动建议和门店执行清单。</li>
+          </ol>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
