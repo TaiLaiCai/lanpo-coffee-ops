@@ -1,6 +1,6 @@
 # 蓝珀咖啡运营中控 MVP
 
-这是蓝珀咖啡多 Agent 运营系统的第一版静态原型，先跑通核心业务闭环：
+这是蓝珀咖啡多 Agent 运营系统的第一版可运行后台，先跑通核心业务闭环：
 
 - 店长总控 Agent：汇总经营判断与今日执行动作
 - 内容运营 Agent：生成选题、标题、视频结构和发布提醒
@@ -10,19 +10,48 @@
 
 ## 本地运行
 
-直接打开 `index.html` 即可使用。
-
-也可以在项目目录启动本地服务：
+安装依赖：
 
 ```bash
-python3 -m http.server 4173
+npm install
+```
+
+配置 OpenAI API Key：
+
+```bash
+cp .env.example .env
+# 然后把 .env 里的 OPENAI_API_KEY 改成真实 Key
 ```
 
 然后访问：
 
-```text
-http://localhost:4173
+```bash
+npm start
 ```
+
+```text
+http://localhost:3000
+```
+
+没有配置 `OPENAI_API_KEY` 时，系统会自动使用本地规则兜底；配置后会启用真实多 Agent 工作流。
+
+## 多 Agent 工作流
+
+- `POST /api/workflows/daily`：每日晨会，依次调用数据、产品、内容、客服、总控 Agent
+- `POST /api/workflows/customer`：顾客咨询，调用产品 Agent 和客服 Agent
+- `GET /api/health`：查看当前运行模式
+
+后端使用 OpenAI Responses API，密钥只放在服务器环境变量里，不暴露到浏览器。
+
+## sandlabs.cn 部署
+
+服务器上执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scripts/deploy-sandlabs.sh | bash
+```
+
+脚本会安装依赖、启动 systemd 服务，并让 Nginx 反代到 Node Agent 服务。
 
 ## 下一阶段可接入
 

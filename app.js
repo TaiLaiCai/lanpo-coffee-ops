@@ -26,17 +26,42 @@ const today = new Intl.DateTimeFormat("zh-CN", {
 
 function getData() {
   return {
+    date: today,
     revenue: Number(fields.revenue.value || 0),
     cups: Number(fields.cups.value || 0),
     ticket: Number(fields.ticket.value || 0),
     views: Number(fields.views.value || 0),
     engagement: Number(fields.engagement.value || 0),
     weather: fields.weather.value,
+    question: $("#customerQuestion").value.trim(),
   };
+}
+
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function yuan(value) {
   return `¥${Math.round(value).toLocaleString("zh-CN")}`;
+}
+
+function list(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return "";
+  }
+
+  return `<ul>${items.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>`;
+}
+
+function setStatus(mode) {
+  const status = document.querySelector(".status");
+  if (!status) return;
+  status.textContent = mode === "openai-agents" ? "真实 Agent" : "本地兜底";
 }
 
 function getDiagnosis(data) {
@@ -45,7 +70,6 @@ function getDiagnosis(data) {
   if (data.revenue < 1800 && data.ticket >= 26) {
     return {
       issue: "客单价稳定，但营业额偏低，主要问题更像是进店流量不足。",
-      action: "今天把内容和门口物料都指向同一个场景：下午犯困、熬夜后想清醒。",
       alert: "建议做 14:00-17:00 第二杯半价，先补低峰杯量。",
     };
   }
@@ -53,7 +77,6 @@ function getDiagnosis(data) {
   if (data.ticket < 24) {
     return {
       issue: "客流有基础，但客单价偏低，需要提升组合购买。",
-      action: "主推咖啡 + 小食或升级燕麦奶，收银话术要自然带出。",
       alert: "今日重点看加购率，不急着降价。",
     };
   }
@@ -61,14 +84,12 @@ function getDiagnosis(data) {
   if (engagementRate > 0.06 && data.revenue < 2600) {
     return {
       issue: "内容互动不错，但到店转化没有跟上，缺少明确门店引导。",
-      action: "文案加入门店位置、到店福利和适合人群，让浏览变成行动。",
       alert: "评论区固定回复：滨江附近上班可以来店里试一杯。",
     };
   }
 
   return {
     issue: "经营数据整体平稳，今天适合做场景化主推和会员复购。",
-    action: "上午发科普内容，下午推续命咖啡，晚间做老客唤醒。",
     alert: "保持出杯稳定，重点收集顾客对主推产品的反馈。",
   };
 }
@@ -85,66 +106,43 @@ function getWeatherPlan(weather) {
   return plans[weather] || plans.晴天;
 }
 
-function buildManager(data) {
+function localFallback(data) {
   const diagnosis = getDiagnosis(data);
-  const weatherPlan = getWeatherPlan(data.weather);
-
-  outputs.manager.innerHTML = `
-    <p><strong>问题判断：</strong>${diagnosis.issue}</p>
-    <p><strong>天气策略：</strong>${weatherPlan}</p>
-    <ul>
-      <li>上午：发布咖啡知识短内容，主题围绕“熬夜后怎么喝咖啡”。</li>
-      <li>下午：执行“蓝珀下午续命计划”，提升低峰时段杯量。</li>
-      <li>晚间：私域提醒老客明早可提前点单，减少等待。</li>
-    </ul>
-    <p><strong>老板提醒：</strong>${diagnosis.alert}</p>
-  `;
-}
-
-function buildContent(data) {
-  const locationHint =
-    data.views > 1000 ? "正文结尾加一句：滨江附近上班的朋友，可以来店里试试。" : "先把标题钩子做强，提升浏览和收藏。";
-
-  outputs.content.innerHTML = `
-    <p><strong>今日选题：</strong>《熬夜后第二天咖啡怎么喝？》</p>
-    <p><strong>标题：</strong>熬夜党别乱喝咖啡，越喝越困可能是这个原因</p>
-    <ul>
-      <li>开头钩子：你以为困了就该马上喝咖啡吗？</li>
-      <li>误区解释：刚醒皮质醇高，马上灌咖啡不一定更清醒。</li>
-      <li>正确喝法：起床后 60-90 分钟喝，中杯就够，不建议太晚。</li>
-      <li>到店引导：今天蓝珀主推冰美式和低糖燕麦拿铁。</li>
-    </ul>
-    <p><strong>发布提醒：</strong>${locationHint}</p>
-  `;
-}
-
-function buildProduct(data) {
   const product =
     data.weather === "高温" || data.weather === "晴天"
       ? "冰美式 + 低糖燕麦拿铁"
       : "热澳白 + 热拿铁";
-  const avoid =
-    data.ticket < 24 ? "单杯低价成交，收银时补一句“要不要加一份小食”。" : "摩卡、焦糖玛奇朵、厚乳系列不适合减脂话题主推。";
 
-  outputs.product.innerHTML = `
-    <p><strong>今日主推：</strong>${product}</p>
-    <p><strong>适合人群：</strong>上班族、减脂期女生、熬夜后需要清醒的人。</p>
-    <ul>
-      <li>低负担推荐：冰美式、燕麦拿铁、澳白。</li>
-      <li>话术重点：少糖、清爽、下午不容易腻。</li>
-      <li>避开提醒：${avoid}</li>
-    </ul>
-  `;
-}
-
-function buildReport(data) {
-  const diagnosis = getDiagnosis(data);
-  const product =
-    data.weather === "高温" || data.weather === "晴天"
-      ? "冰美式 / 低糖燕麦拿铁"
-      : "热拿铁 / 澳白";
-
-  outputs.report.textContent = `蓝珀咖啡每日运营日报
+  return {
+    mode: "local-fallback",
+    dataAgent: {
+      issue: diagnosis.issue,
+      signals: ["营业额", "杯量", "客单价", "内容互动"],
+      risks: ["低峰时段销售不足"],
+      actions: ["上午发布咖啡知识短内容", "下午执行第二杯半价", "私域提醒老客明早提前点单"],
+    },
+    productAgent: {
+      heroProduct: product,
+      audience: ["上班族", "减脂期女生", "熬夜后需要清醒的人"],
+      avoid: ["摩卡、焦糖玛奇朵、厚乳系列不适合减脂话题主推"],
+      staffScript: `今天主推${product}，清爽、低负担，适合下午提神。`,
+    },
+    contentAgent: {
+      topic: "熬夜后第二天咖啡怎么喝？",
+      title: "熬夜党别乱喝咖啡，越喝越困可能是这个原因",
+      cover: "熬夜后咖啡这样喝",
+      videoStructure: ["开头钩子", "误区解释", "正确喝法", "到店引导"],
+      body: "起床后 60-90 分钟再喝，中杯就够，不建议太晚。滨江附近上班的朋友，可以来蓝珀试试低糖燕麦拿铁。",
+      commentGuide: "你一般几点喝第一杯咖啡？",
+    },
+    serviceAgent: {
+      question: data.question,
+      reply: "可以喝，但建议选中杯、少糖或不加糖。如果今天热量控制比较严格，可以选冰美式；想顺滑一点就选低糖拿铁。太晚不建议喝大杯。",
+    },
+    managerAgent: {
+      summary: `${diagnosis.issue}${getWeatherPlan(data.weather)}`,
+      priority: ["上午发布咖啡知识内容", "下午做第二杯半价", "评论区加入门店位置引导"],
+      report: `蓝珀咖啡每日运营日报
 
 日期：${today}
 天气：${data.weather}
@@ -163,38 +161,108 @@ ${product}
 《熬夜后第二天咖啡怎么喝？》
 
 今日活动：
-蓝珀下午续命计划，周一到周五 14:00-17:00，任意咖啡第二杯半价。
+蓝珀下午续命计划，14:00-17:00 任意咖啡第二杯半价。
 
 员工重点动作：
 1. 门口立牌改为“熬夜后喝什么咖啡”
 2. 收银优先推荐今日主推产品
 3. 记录顾客对低糖、燕麦奶、冰饮的反馈
-4. 下午低峰时段提醒老客可到店或外卖下单
+4. 下午低峰时段提醒老客到店或外卖下单
 
 老板提醒：
-${diagnosis.alert}`;
+${diagnosis.alert}`,
+    },
+  };
 }
 
-function answerQuestion() {
-  const question = $("#customerQuestion").value.trim();
-  const isLatte = /拿铁|latte/i.test(question);
-  const isFatLoss = /减脂|减肥|控糖|热量/.test(question);
+function renderWorkflow(workflow) {
+  const dataAgent = workflow.dataAgent || {};
+  const productAgent = workflow.productAgent || {};
+  const contentAgent = workflow.contentAgent || {};
+  const serviceAgent = workflow.serviceAgent || {};
+  const managerAgent = workflow.managerAgent || {};
 
-  const reply =
-    isLatte && isFatLoss
-      ? "可以喝，但建议选中杯、少糖或不加糖，奶可以换成燕麦奶或低脂奶。如果你下午容易困，拿铁比甜饮更稳；如果今天热量控制比较严格，也可以选冰美式。你在附近的话，来蓝珀我可以按低糖口味帮你做。"
-      : "可以的，我建议按你的时间和口味来选。如果想清爽一点选美式，想顺滑一点选拿铁或澳白，太晚就不建议喝大杯。你告诉我今天想提神还是想轻松喝一杯，我可以帮你配。";
+  setStatus(workflow.mode);
 
-  outputs.service.innerHTML = `<p>${reply}</p>`;
+  outputs.manager.innerHTML = `
+    <p><strong>总控判断：</strong>${escapeHTML(managerAgent.summary || dataAgent.issue)}</p>
+    <p><strong>数据 Agent：</strong>${escapeHTML(dataAgent.issue)}</p>
+    ${list(dataAgent.actions)}
+    <p><strong>优先级：</strong></p>
+    ${list(managerAgent.priority)}
+  `;
+
+  outputs.product.innerHTML = `
+    <p><strong>今日主推：</strong>${escapeHTML(productAgent.heroProduct)}</p>
+    <p><strong>适合人群：</strong>${escapeHTML((productAgent.audience || []).join("、"))}</p>
+    ${list(productAgent.avoid)}
+    <p><strong>员工话术：</strong>${escapeHTML(productAgent.staffScript)}</p>
+  `;
+
+  outputs.content.innerHTML = `
+    <p><strong>今日选题：</strong>《${escapeHTML(contentAgent.topic)}》</p>
+    <p><strong>标题：</strong>${escapeHTML(contentAgent.title)}</p>
+    <p><strong>封面：</strong>${escapeHTML(contentAgent.cover)}</p>
+    ${list(contentAgent.videoStructure)}
+    <p><strong>正文：</strong>${escapeHTML(contentAgent.body)}</p>
+    <p><strong>评论引导：</strong>${escapeHTML(contentAgent.commentGuide)}</p>
+  `;
+
+  outputs.service.innerHTML = `<p>${escapeHTML(serviceAgent.reply)}</p>`;
+  outputs.report.textContent = managerAgent.report || "";
 }
 
-function generateAll() {
-  const data = getData();
-  buildManager(data);
-  buildContent(data);
-  buildProduct(data);
-  buildReport(data);
-  answerQuestion();
+function setLoading(isLoading) {
+  $("#generateAll").disabled = isLoading;
+  $("#answerQuestion").disabled = isLoading;
+  $("#generateAll").textContent = isLoading ? "Agent 协作中..." : "生成今日方案";
+}
+
+async function requestWorkflow(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    if (data.fallback) {
+      return data.fallback;
+    }
+    throw new Error(data.message || "Agent workflow failed.");
+  }
+
+  return data;
+}
+
+async function generateAll() {
+  const payload = getData();
+  setLoading(true);
+
+  try {
+    const workflow = await requestWorkflow("/api/workflows/daily", payload);
+    renderWorkflow(workflow);
+  } catch {
+    renderWorkflow(localFallback(payload));
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function answerQuestion() {
+  const payload = getData();
+  $("#answerQuestion").disabled = true;
+  outputs.service.innerHTML = "<p>客服 Agent 正在生成...</p>";
+
+  try {
+    const serviceAgent = await requestWorkflow("/api/workflows/customer", payload);
+    outputs.service.innerHTML = `<p>${escapeHTML(serviceAgent.reply)}</p>`;
+  } catch {
+    outputs.service.innerHTML = `<p>${escapeHTML(localFallback(payload).serviceAgent.reply)}</p>`;
+  } finally {
+    $("#answerQuestion").disabled = false;
+  }
 }
 
 $("#generateAll").addEventListener("click", generateAll);
@@ -208,8 +276,8 @@ $("#copyReport").addEventListener("click", async () => {
 });
 
 Object.values(fields).forEach((field) => {
-  field.addEventListener("change", generateAll);
-  field.addEventListener("input", generateAll);
+  field.addEventListener("change", () => renderWorkflow(localFallback(getData())));
+  field.addEventListener("input", () => renderWorkflow(localFallback(getData())));
 });
 
-generateAll();
+renderWorkflow(localFallback(getData()));
