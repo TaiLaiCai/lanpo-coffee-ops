@@ -6,7 +6,13 @@ REPO_URL="https://github.com/TaiLaiCai/lanpo-coffee-ops.git"
 PORT="${PORT:-3000}"
 
 if [ "$(id -u)" -ne 0 ]; then
-  exec sudo -E bash "$0" "$@"
+  if [ -f "$0" ]; then
+    exec sudo -E bash "$0" "$@"
+  fi
+
+  echo "请使用 sudo 运行部署脚本，例如："
+  echo "curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scripts/deploy-sandlabs.sh | sudo bash"
+  exit 1
 fi
 
 if ! command -v node >/dev/null 2>&1; then
