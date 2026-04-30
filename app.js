@@ -61,7 +61,7 @@ function list(items) {
 function setStatus(mode) {
   const status = document.querySelector(".status");
   if (!status) return;
-  status.textContent = mode === "openai-agents" ? "真实 Agent" : "本地兜底";
+  status.textContent = mode?.endsWith("-agents") ? "真实 Agent" : "本地兜底";
 }
 
 function getDiagnosis(data) {

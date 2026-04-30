@@ -33,13 +33,14 @@ fi
 cd "$APP_DIR"
 npm install --omit=dev
 
-if [ ! -f "$APP_DIR/.env" ]; then
-  echo "请输入 OpenAI API Key。输入时不会显示："
-  read -r -s OPENAI_API_KEY
+if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^(MINIMAX_API_KEY|OPENAI_API_KEY)=' "$APP_DIR/.env"; then
+  echo "请输入 MiniMax API Key。输入时不会显示："
+  read -r -s MINIMAX_API_KEY
   echo
   cat > "$APP_DIR/.env" <<ENV
-OPENAI_API_KEY=$OPENAI_API_KEY
-OPENAI_MODEL=gpt-5.2
+MINIMAX_API_KEY=$MINIMAX_API_KEY
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+MINIMAX_MODEL=MiniMax-M2.7
 PORT=$PORT
 ENV
 fi

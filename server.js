@@ -3,10 +3,24 @@ import OpenAI from "openai";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const model = process.env.OPENAI_MODEL || "gpt-5.2";
-const client = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
+const provider = process.env.MINIMAX_API_KEY
+  ? "minimax"
+  : process.env.OPENAI_API_KEY
+    ? "openai"
+    : "local-fallback";
+const model =
+  provider === "minimax"
+    ? process.env.MINIMAX_MODEL || "MiniMax-M2.7"
+    : process.env.OPENAI_MODEL || "gpt-5.2";
+const client =
+  provider === "minimax"
+    ? new OpenAI({
+        apiKey: process.env.MINIMAX_API_KEY,
+        baseURL: process.env.MINIMAX_BASE_URL || "https://api.minimax.io/v1",
+      })
+    : provider === "openai"
+      ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+      : null;
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(process.cwd(), { extensions: ["html"] }));
@@ -54,10 +68,11 @@ function normalizeMetrics(body) {
 }
 
 function extractJson(text) {
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   try {
-    return JSON.parse(text);
+    return JSON.parse(cleaned);
   } catch {
-    const match = text.match(/\{[\s\S]*\}/);
+    const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) {
       throw new Error("Agent did not return JSON.");
     }
@@ -67,28 +82,50 @@ function extractJson(text) {
 
 async function runAgent(name, payload, schemaHint) {
   if (!client) {
-    throw new Error("OPENAI_API_KEY is not configured.");
+    throw new Error("MINIMAX_API_KEY or OPENAI_API_KEY is not configured.");
   }
 
-  const response = await client.responses.create({
-    model,
-    input: [
-      {
-        role: "system",
-        content: `${agentInstructions[name]}
+  const systemPrompt = `${agentInstructions[name]}
 
 只输出 JSON，不要 Markdown，不要代码块。
 JSON 结构要求：
-${schemaHint}`,
+${schemaHint}`;
+
+  if (provider === "openai") {
+    const response = await client.responses.create({
+      model,
+      input: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: JSON.stringify(payload, null, 2),
+        },
+      ],
+    });
+
+    return extractJson(response.output_text || "");
+  }
+
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
       },
       {
         role: "user",
         content: JSON.stringify(payload, null, 2),
       },
     ],
+    temperature: 0.7,
+    max_completion_tokens: 2048,
   });
 
-  return extractJson(response.output_text || "");
+  return extractJson(response.choices?.[0]?.message?.content || "");
 }
 
 function localFallback(metrics, question = "减脂期能喝拿铁吗？") {
@@ -177,7 +214,7 @@ ${product}
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
-    mode: client ? "openai-agents" : "local-fallback",
+    mode: client ? `${provider}-agents` : "local-fallback",
     model: client ? model : null,
   });
 });
@@ -224,7 +261,7 @@ app.post("/api/workflows/daily", async (req, res) => {
     );
 
     res.json({
-      mode: "openai-agents",
+      mode: `${provider}-agents`,
       dataAgent,
       productAgent,
       contentAgent,

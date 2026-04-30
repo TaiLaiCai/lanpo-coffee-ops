@@ -16,11 +16,11 @@
 npm install
 ```
 
-配置 OpenAI API Key：
+配置 MiniMax API Key：
 
 ```bash
 cp .env.example .env
-# 然后把 .env 里的 OPENAI_API_KEY 改成真实 Key
+# 然后把 .env 里的 MINIMAX_API_KEY 改成真实 Key
 ```
 
 然后访问：
@@ -33,7 +33,7 @@ npm start
 http://localhost:3000
 ```
 
-没有配置 `OPENAI_API_KEY` 时，系统会自动使用本地规则兜底；配置后会启用真实多 Agent 工作流。
+没有配置 `MINIMAX_API_KEY` 时，系统会自动使用本地规则兜底；配置后会启用真实多 Agent 工作流。
 
 ## 多 Agent 工作流
 
@@ -41,17 +41,17 @@ http://localhost:3000
 - `POST /api/workflows/customer`：顾客咨询，调用产品 Agent 和客服 Agent
 - `GET /api/health`：查看当前运行模式
 
-后端使用 OpenAI Responses API，密钥只放在服务器环境变量里，不暴露到浏览器。
+后端默认使用 MiniMax 的 OpenAI-compatible Chat Completions API，密钥只放在服务器环境变量里，不暴露到浏览器。
 
 ## sandlabs.cn 部署
 
 服务器上执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scripts/deploy-sandlabs.sh | bash
+curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scripts/deploy-sandlabs.sh | sudo bash
 ```
 
-脚本会安装依赖、启动 systemd 服务，并让 Nginx 反代到 Node Agent 服务。
+脚本会安装依赖、提示输入 MiniMax API Key、启动 systemd 服务，并让 Nginx 反代到 Node Agent 服务。
 
 ## 下一阶段可接入
 
