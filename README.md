@@ -69,3 +69,25 @@ curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scr
 - 服务器 SSH 信息和域名
 - 已有 OpenClaw 部署地址和接口说明
 - 飞书应用凭证与多维表格结构
+
+## Agent 文件化管理
+
+5 个核心 Agent 已拆分到 `agents/` 目录：
+
+- `agents/manager.md`：店长总控 Agent，负责最终取舍、日报和执行清单
+- `agents/data.md`：数据复盘 Agent，负责经营判断和预警
+- `agents/product.md`：咖啡产品 Agent，负责产品推荐、专业校验和员工话术
+- `agents/content.md`：内容运营 Agent，负责小红书/抖音/朋友圈内容
+- `agents/service.md`：私域客服 Agent，负责微信、社群和评论回复
+
+后端启动时会读取这些 Markdown 文件。修改某个 Agent 的职责或个性后，重启服务即可生效：
+
+```bash
+sudo systemctl restart lanpo-coffee-ops
+```
+
+查看当前服务加载的 Agent：
+
+```bash
+curl -s http://127.0.0.1:3000/api/agents
+```

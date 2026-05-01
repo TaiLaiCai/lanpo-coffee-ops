@@ -1,5 +1,7 @@
 import express from "express";
 import OpenAI from "openai";
+import fs from "node:fs";
+import path from "node:path";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -44,24 +46,27 @@ function validateProviderConfig() {
   );
 }
 
-const agentInstructions = {
-  data: `你是蓝珀咖啡的数据复盘 Agent。
-职责：根据营业额、杯量、客单价、内容浏览、互动、天气，判断经营问题和明日优先动作。
-输出要具体、短句、可执行。不要编造不存在的数据。`,
-  product: `你是蓝珀咖啡的咖啡产品 Agent。
-职责：根据天气、经营数据、用户场景，推荐今日主推咖啡、搭配、避开项和员工推荐话术。
-必须兼顾咖啡专业性、减脂/熬夜/上班族场景和门店转化。`,
-  content: `你是蓝珀咖啡的内容运营 Agent。
-职责：生产小红书、抖音和朋友圈内容方案。
-输出必须包含选题、标题、短视频结构、正文要点、封面文案、评论区引导。
-风格：像真实咖啡店账号，不空泛，不营销腔。`,
-  service: `你是蓝珀咖啡的私域客服 Agent。
-职责：把顾客问题转成专业、温和、有转化的微信/社群回复。
-回复要自然，避免医疗承诺，咖啡因和睡眠建议要谨慎。`,
-  manager: `你是蓝珀咖啡店长总控 Agent。
-职责：整合数据、产品、内容、客服/活动建议，生成老板能直接执行的每日运营日报。
-输出要有判断、有动作、有优先级。`,
+const agentFiles = {
+  data: "data.md",
+  product: "product.md",
+  content: "content.md",
+  service: "service.md",
+  manager: "manager.md",
 };
+
+function loadAgentInstructions() {
+  const agentsDir = path.join(process.cwd(), "agents");
+  const loaded = {};
+
+  for (const [name, file] of Object.entries(agentFiles)) {
+    const filePath = path.join(agentsDir, file);
+    loaded[name] = fs.readFileSync(filePath, "utf8").trim();
+  }
+
+  return loaded;
+}
+
+const agentInstructions = loadAgentInstructions();
 
 function field(value, fallback = "") {
   return value === undefined || value === null || value === "" ? fallback : value;
@@ -288,11 +293,22 @@ app.get("/api/health", (_req, res) => {
     mode: provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback",
     model: provider === "minimax" || provider === "openai" ? model : null,
     provider,
+    agents: Object.keys(agentInstructions),
     configured: {
       minimax: Boolean(process.env.MINIMAX_API_KEY),
       openai: Boolean(process.env.OPENAI_API_KEY),
     },
     error: providerError,
+  });
+});
+
+app.get("/api/agents", (_req, res) => {
+  res.json({
+    agents: Object.entries(agentInstructions).map(([name, instruction]) => ({
+      name,
+      file: agentFiles[name],
+      preview: instruction.slice(0, 260),
+    })),
   });
 });
 
