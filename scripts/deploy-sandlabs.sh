@@ -23,6 +23,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 NODE_BIN="$(command -v node)"
+NPM_BIN="$(command -v npm)"
 
 apt-get update
 apt-get install -y certbot curl git nginx python3 python3-certbot-nginx
@@ -37,6 +38,10 @@ if ! command -v mini-agent >/dev/null 2>&1; then
   uv tool install git+https://github.com/MiniMax-AI/Mini-Agent.git
 else
   uv tool upgrade mini-agent || true
+fi
+
+if ! command -v openclaw >/dev/null 2>&1; then
+  "$NPM_BIN" install -g openclaw@latest
 fi
 
 if [ -d "$APP_DIR/.git" ]; then
@@ -57,6 +62,11 @@ if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^(MINIMAX_API_KEY|OPENAI_API_KEY)=' "
 MINIMAX_API_KEY=$MINIMAX_API_KEY
 MINIMAX_BASE_URL=https://api.minimaxi.com/v1
 MINIMAX_MODEL=MiniMax-M2.7
+OPENCLAW_MODEL=MiniMax-M2.7
+OPENCLAW_DATA_URL=http://127.0.0.1:18791
+OPENCLAW_PRODUCT_URL=http://127.0.0.1:18792
+OPENCLAW_GROWTH_URL=http://127.0.0.1:18793
+OPENCLAW_MANAGER_URL=http://127.0.0.1:18794
 AGENTS_ADMIN_PASSWORD=6666
 PORT=$PORT
 ENV
@@ -64,6 +74,17 @@ fi
 
 if ! grep -Eq '^AGENTS_ADMIN_PASSWORD=' "$APP_DIR/.env"; then
   printf '\nAGENTS_ADMIN_PASSWORD=6666\n' >> "$APP_DIR/.env"
+fi
+
+if ! grep -Eq '^OPENCLAW_' "$APP_DIR/.env"; then
+  cat >> "$APP_DIR/.env" <<ENV
+
+OPENCLAW_MODEL=MiniMax-M2.7
+OPENCLAW_DATA_URL=http://127.0.0.1:18791
+OPENCLAW_PRODUCT_URL=http://127.0.0.1:18792
+OPENCLAW_GROWTH_URL=http://127.0.0.1:18793
+OPENCLAW_MANAGER_URL=http://127.0.0.1:18794
+ENV
 fi
 
 MINI_AGENT_CONFIG_DIR="/root/.mini-agent/config"

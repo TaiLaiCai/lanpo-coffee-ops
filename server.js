@@ -9,13 +9,17 @@ const port = Number(process.env.PORT || 3000);
 const providerError = validateProviderConfig();
 const provider = providerError
   ? "invalid-config"
-  : process.env.MINIMAX_API_KEY
+  : hasOpenClawConfig()
+    ? "openclaw"
+    : process.env.MINIMAX_API_KEY
     ? "minimax"
     : process.env.OPENAI_API_KEY
       ? "openai"
       : "local-fallback";
 const model =
-  provider === "minimax"
+  provider === "openclaw"
+    ? process.env.OPENCLAW_MODEL || process.env.MINIMAX_MODEL || "MiniMax-M2.7"
+    : provider === "minimax"
     ? process.env.MINIMAX_MODEL || "MiniMax-M2.7"
     : process.env.OPENAI_MODEL || "gpt-5.2";
 const client = provider === "openai" ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
@@ -52,17 +56,25 @@ function validateProviderConfig() {
 const agentFiles = {
   data: "data.md",
   product: "product.md",
-  content: "content.md",
-  service: "service.md",
+  growth: "growth.md",
   manager: "manager.md",
 };
 const agentWorkflow = [
   { step: 1, id: "data", name: "数据 Agent", dependsOn: [] },
   { step: 2, id: "product", name: "产品 Agent", dependsOn: ["data"] },
-  { step: 3, id: "content", name: "内容 Agent", dependsOn: ["data", "product"], parallelGroup: "growth-and-service" },
-  { step: 3, id: "service", name: "客服 Agent", dependsOn: ["product"], parallelGroup: "growth-and-service" },
-  { step: 4, id: "manager", name: "店长总控 Agent", dependsOn: ["data", "product", "content", "service"] },
+  { step: 3, id: "growth", name: "内容客服 Agent", dependsOn: ["data", "product"] },
+  { step: 4, id: "manager", name: "店长总控 Agent", dependsOn: ["data", "product", "growth"] },
 ];
+
+function hasOpenClawConfig() {
+  return Boolean(
+    process.env.OPENCLAW_BASE_URL ||
+      process.env.OPENCLAW_DATA_URL ||
+      process.env.OPENCLAW_PRODUCT_URL ||
+      process.env.OPENCLAW_GROWTH_URL ||
+      process.env.OPENCLAW_MANAGER_URL,
+  );
+}
 
 function loadAgentInstructions() {
   const agentsDir = path.join(process.cwd(), "agents");
@@ -222,12 +234,13 @@ function renderAgentsPanel() {
         <div class="module-head">
           <div>
             <p class="eyebrow">后端运行状态</p>
-            <h2>${escapeHTML(provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback")}</h2>
+            <h2>${escapeHTML(provider === "openclaw" || provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback")}</h2>
           </div>
           <span class="status">${escapeHTML(model || "本地兜底")}</span>
         </div>
         <div class="output">
           <p><strong>Provider：</strong>${escapeHTML(provider)}</p>
+          <p><strong>OpenClaw：</strong>${hasOpenClawConfig() ? "已配置" : "未配置"}</p>
           <p><strong>MiniMax：</strong>${process.env.MINIMAX_API_KEY ? "已配置" : "未配置"}</p>
           <p><strong>OpenAI：</strong>${process.env.OPENAI_API_KEY ? "已配置" : "未配置"}</p>
           ${providerError ? `<p><strong>配置提示：</strong>${escapeHTML(providerError)}</p>` : ""}
@@ -238,7 +251,7 @@ function renderAgentsPanel() {
         <div class="section-title">
           <div>
             <p class="eyebrow">协作链路</p>
-            <h2>数据 → 产品 → 内容 / 客服 → 店长总控</h2>
+            <h2>数据 → 产品 → 内容客服 → 店长总控</h2>
           </div>
         </div>
         <div class="agent-grid">${workflow}</div>
@@ -309,9 +322,65 @@ async function callMiniMax(messages) {
   return extractJson(response.choices?.[0]?.message?.content || "");
 }
 
+function openClawEndpoint(name) {
+  const key = `OPENCLAW_${name.toUpperCase()}_URL`;
+  const baseURL = process.env[key] || process.env.OPENCLAW_BASE_URL || "http://127.0.0.1:18789";
+  const trimmed = baseURL.replace(/\/$/, "");
+
+  if (trimmed.endsWith("/v1/responses")) {
+    return trimmed;
+  }
+
+  return `${trimmed}/v1/responses`;
+}
+
+function extractOpenClawText(response) {
+  if (response.output_text) {
+    return response.output_text;
+  }
+
+  const outputText = response.output
+    ?.flatMap((item) => item.content || [])
+    .map((content) => content.text || "")
+    .join("")
+    .trim();
+  if (outputText) {
+    return outputText;
+  }
+
+  const chatText = response.choices?.[0]?.message?.content;
+  if (chatText) {
+    return chatText;
+  }
+
+  throw new Error("OpenClaw did not return text.");
+}
+
+async function callOpenClaw(name, messages) {
+  const headers = { "Content-Type": "application/json" };
+  if (process.env.OPENCLAW_API_KEY) {
+    headers.Authorization = `Bearer ${process.env.OPENCLAW_API_KEY}`;
+  }
+
+  const response = await postJsonWithTimeout(
+    openClawEndpoint(name),
+    {
+      model,
+      input: messages,
+      metadata: {
+        lanpoAgent: name,
+        workflow: "lanpo-coffee-ops",
+      },
+    },
+    headers,
+  );
+
+  return extractJson(extractOpenClawText(response));
+}
+
 async function runAgent(name, payload, schemaHint) {
   if (provider === "local-fallback" || provider === "invalid-config") {
-    throw new Error("MINIMAX_API_KEY or OPENAI_API_KEY is not configured correctly.");
+    throw new Error("OPENCLAW_BASE_URL, MINIMAX_API_KEY or OPENAI_API_KEY is not configured correctly.");
   }
 
   const systemPrompt = `${agentInstructions[name]}
@@ -319,6 +388,19 @@ async function runAgent(name, payload, schemaHint) {
 只输出 JSON，不要 Markdown，不要代码块。
 JSON 结构要求：
 ${schemaHint}`;
+
+  if (provider === "openclaw") {
+    return callOpenClaw(name, [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(payload, null, 2),
+      },
+    ]);
+  }
 
   if (provider === "openai") {
     const response = await client.responses.create({
@@ -471,12 +553,13 @@ app.use(express.static(process.cwd(), { extensions: ["html"] }));
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: !providerError,
-    mode: provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback",
-    model: provider === "minimax" || provider === "openai" ? model : null,
+    mode: provider === "openclaw" || provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback",
+    model: provider === "openclaw" || provider === "minimax" || provider === "openai" ? model : null,
     provider,
     agents: Object.keys(agentInstructions),
     workflow: agentWorkflow,
     configured: {
+      openclaw: hasOpenClawConfig(),
       minimax: Boolean(process.env.MINIMAX_API_KEY),
       openai: Boolean(process.env.OPENAI_API_KEY),
     },
@@ -510,19 +593,32 @@ app.get("/api/agent-check", async (_req, res) => {
     res.status(400).json({
       ok: false,
       provider: "local-fallback",
-      error: "没有配置 MINIMAX_API_KEY 或 OPENAI_API_KEY",
+      error: "没有配置 OPENCLAW_BASE_URL、MINIMAX_API_KEY 或 OPENAI_API_KEY",
     });
     return;
   }
 
   try {
     const result = await runAgent(
-      "service",
+      "growth",
       {
         question: "减脂期能喝拿铁吗？",
         metrics: normalizeMetrics({ weather: "晴天", revenue: 2680, cups: 96, ticket: 28 }),
       },
-      `{ "question": "顾客问题", "reply": "可直接发送的回复" }`,
+      `{
+        "contentAgent": {
+          "topic": "可选内容选题",
+          "title": "可选标题",
+          "cover": "可选封面文案",
+          "videoStructure": ["可选结构"],
+          "body": "可选正文",
+          "commentGuide": "可选评论引导"
+        },
+        "serviceAgent": {
+          "question": "顾客问题",
+          "reply": "可直接发送的回复"
+        }
+      }`,
     );
 
     res.json({ ok: true, provider, model, result });
@@ -553,22 +649,30 @@ app.post("/api/workflows/daily", async (req, res) => {
       `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
     );
 
-    const [contentAgent, serviceAgent] = await Promise.all([
-      runAgent(
-        "content",
-        { metrics, dataAgent, productAgent },
-        `{ "topic": "选题", "title": "标题", "cover": "封面文案", "videoStructure": ["结构"], "body": "小红书正文", "commentGuide": "评论区引导" }`,
-      ),
-      runAgent(
-        "service",
-        { question, metrics, productAgent },
-        `{ "question": "顾客问题", "reply": "可直接发送的回复" }`,
-      ),
-    ]);
+    const growthAgent = await runAgent(
+      "growth",
+      { question, metrics, dataAgent, productAgent },
+      `{
+        "contentAgent": {
+          "topic": "选题",
+          "title": "标题",
+          "cover": "封面文案",
+          "videoStructure": ["结构"],
+          "body": "小红书正文",
+          "commentGuide": "评论区引导"
+        },
+        "serviceAgent": {
+          "question": "顾客问题",
+          "reply": "可直接发送的回复"
+        }
+      }`,
+    );
+    const contentAgent = growthAgent.contentAgent || {};
+    const serviceAgent = growthAgent.serviceAgent || {};
 
     const managerAgent = await runAgent(
       "manager",
-      { metrics, dataAgent, productAgent, contentAgent, serviceAgent },
+      { metrics, dataAgent, productAgent, growthAgent },
       `{ "summary": "今日总判断", "priority": ["优先动作"], "report": "完整日报文本" }`,
     );
 
@@ -576,6 +680,7 @@ app.post("/api/workflows/daily", async (req, res) => {
       mode: `${provider}-agents`,
       dataAgent,
       productAgent,
+      growthAgent,
       contentAgent,
       serviceAgent,
       managerAgent,
@@ -604,13 +709,26 @@ app.post("/api/workflows/customer", async (req, res) => {
       { metrics },
       `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
     );
-    const serviceAgent = await runAgent(
-      "service",
+    const growthAgent = await runAgent(
+      "growth",
       { question, metrics, productAgent },
-      `{ "question": "顾客问题", "reply": "可直接发送的回复" }`,
+      `{
+        "contentAgent": {
+          "topic": "可选内容选题",
+          "title": "可选标题",
+          "cover": "可选封面文案",
+          "videoStructure": ["可选结构"],
+          "body": "可选正文",
+          "commentGuide": "可选评论引导"
+        },
+        "serviceAgent": {
+          "question": "顾客问题",
+          "reply": "可直接发送的回复"
+        }
+      }`,
     );
 
-    res.json(serviceAgent);
+    res.json(growthAgent.serviceAgent || growthAgent);
   } catch (error) {
     res.status(500).json({
       error: "customer_workflow_failed",
