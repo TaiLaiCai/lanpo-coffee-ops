@@ -1,6 +1,13 @@
 # 蓝珀咖啡运营中控 MVP
 
-这是蓝珀咖啡多 Agent 运营系统的第一版可运行后台，先跑通核心业务闭环：
+这是蓝珀咖啡多 Agent 运营系统的第一版可运行服务，前台和后端职责分开：
+
+- `https://sandlabs.cn`：运营前台交互台，给店长和运营录入数据、生成方案、复制日报
+- `https://sandlabs.cn/agents`：多 Agent 后端管理面板，查看运行状态、协作链路和 Agent 配置，密码保护
+- `/api/workflows/*`：前台调用的 Agent 工作流接口
+- `/api/agents`：后端管理接口，需要先登录 `/agents`
+
+当前先跑通核心业务闭环：
 
 - 店长总控 Agent：汇总经营判断与今日执行动作
 - 内容运营 Agent：生成选题、标题、视频结构和发布提醒
@@ -35,13 +42,13 @@ http://localhost:3000
 
 没有配置 `MINIMAX_API_KEY` 时，系统会自动使用本地规则兜底；配置后会启用真实多 Agent 工作流。
 
-管理面板地址：
+多 Agent 后端管理面板地址：
 
 ```text
 https://sandlabs.cn/agents
 ```
 
-默认密码是 `6666`。如果要修改，更新服务器 `/opt/lanpo-coffee-ops/.env`：
+默认密码是 `6666`。这个入口只用于后端管理，不是日常运营交互页。如果要修改密码，更新服务器 `/opt/lanpo-coffee-ops/.env`：
 
 ```bash
 AGENTS_ADMIN_PASSWORD=新密码
@@ -127,11 +134,7 @@ mini-agent --workspace /opt/lanpo-coffee-ops
 sudo systemctl restart lanpo-coffee-ops
 ```
 
-查看当前服务加载的 Agent：
-
-```bash
-curl -s http://127.0.0.1:3000/api/agents
-```
+查看当前服务加载的 Agent 配置：浏览器打开 `https://sandlabs.cn/agents`，输入管理密码后查看。`/api/agents` 只给已登录管理面板使用，不作为公开接口。
 
 查看服务当前运行模式和 Agent 链路：
 

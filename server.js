@@ -154,14 +154,14 @@ function renderAgentsLogin(error = "") {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agent 管理面板登录</title>
+    <title>多 Agent 后端登录</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="admin-page">
     <main class="admin-login">
       <section class="module admin-card">
         <p class="eyebrow">蓝珀咖啡</p>
-        <h1>Agent 管理面板</h1>
+        <h1>多 Agent 后端管理</h1>
         <form method="post" action="/agents/login" class="admin-form">
           <label>
             <span>管理密码</span>
@@ -205,15 +205,15 @@ function renderAgentsPanel() {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agent 管理面板</title>
+    <title>多 Agent 后端管理</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="workspace admin-workspace">
       <header class="topbar">
         <div>
-          <p class="eyebrow">管理面板</p>
-          <h1>蓝珀咖啡 Agent 总控</h1>
+          <p class="eyebrow">后端管理</p>
+          <h1>蓝珀咖啡多 Agent 后端</h1>
         </div>
         <a class="ghost-action admin-link-button" href="/agents/logout">退出</a>
       </header>
@@ -221,7 +221,7 @@ function renderAgentsPanel() {
       <section class="module">
         <div class="module-head">
           <div>
-            <p class="eyebrow">运行状态</p>
+            <p class="eyebrow">后端运行状态</p>
             <h2>${escapeHTML(provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback")}</h2>
           </div>
           <span class="status">${escapeHTML(model || "本地兜底")}</span>
@@ -442,6 +442,10 @@ app.get("/agents", (req, res) => {
   res.send(renderAgentsPanel());
 });
 
+app.get("/agents/", (req, res) => {
+  res.redirect("/agents");
+});
+
 app.post("/agents/login", (req, res) => {
   if (String(req.body?.password || "") !== agentsAdminPassword) {
     res.status(401).send(renderAgentsLogin("密码不正确"));
@@ -480,7 +484,12 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.get("/api/agents", (_req, res) => {
+app.get("/api/agents", (req, res) => {
+  if (!isAgentsAdmin(req)) {
+    res.status(401).json({ error: "agents_admin_login_required" });
+    return;
+  }
+
   res.json({
     workflow: agentWorkflow,
     agents: Object.entries(agentInstructions).map(([name, instruction]) => ({
