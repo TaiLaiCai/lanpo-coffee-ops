@@ -375,7 +375,15 @@ textarea {
   gap: 12px;
 }
 
-.task-item {
+.package-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.task-item,
+.package-item {
   display: grid;
   gap: 8px;
   padding: 14px;
@@ -384,10 +392,16 @@ textarea {
   background: rgba(7, 20, 34, 0.72);
 }
 
-.task-item p {
+.task-item p,
+.package-item p {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.package-price {
+  color: var(--gold);
+  font-weight: 900;
 }
 
 .task-schedule {
@@ -411,6 +425,10 @@ textarea {
 
 .task-item button {
   width: fit-content;
+}
+
+.compact-report {
+  min-height: 220px;
 }
 
 .control-grid,
@@ -557,7 +575,8 @@ textarea {
 
 @media (max-width: 1180px) {
   .metrics,
-  .agent-grid {
+  .agent-grid,
+  .package-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -587,6 +606,7 @@ textarea {
   .control-grid,
   .two-column,
   .agent-grid,
+  .package-grid,
   .action-row {
     grid-template-columns: 1fr;
   }

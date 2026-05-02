@@ -21,6 +21,7 @@
           <a href="#dashboard" class="active">运营交互台</a>
           <a href="#data-source">真实数据</a>
           <a href="#interaction">互动中心</a>
+          <a href="#packages">月费服务包</a>
           <a href="#tasks">定时任务</a>
           <a href="#agents">协作说明</a>
           <a href="#report">运营日报</a>
@@ -164,6 +165,18 @@
             <div class="task-grid" id="taskList"></div>
             <div class="output compact" id="taskOutput"></div>
           </article>
+        </section>
+
+        <section class="module" id="packages">
+          <div class="module-head">
+            <div>
+              <p class="eyebrow">可售卖服务</p>
+              <h2>门店月费服务包</h2>
+            </div>
+            <button class="ghost-action" id="refreshPackages" type="button">刷新</button>
+          </div>
+          <div class="package-grid" id="packageList"></div>
+          <pre class="report compact-report" id="packageOutput"></pre>
         </section>
 
         <section class="agents" id="agents">

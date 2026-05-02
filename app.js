@@ -18,6 +18,7 @@ const outputs = {
   wechat: $("#wechatOutput"),
   tasks: $("#taskOutput"),
   dataSource: $("#dataSourceOutput"),
+  packages: $("#packageOutput"),
 };
 
 const today = new Intl.DateTimeFormat("zh-CN", {
@@ -435,6 +436,65 @@ async function saveTaskSchedule(taskId) {
   }
 }
 
+function renderPackages(data) {
+  const listEl = $("#packageList");
+  if (!listEl) return;
+
+  listEl.innerHTML = (data.packages || [])
+    .map(
+      (item) => `
+        <article class="package-item">
+          <h3>${escapeHTML(item.name)}</h3>
+          <p class="package-price">${escapeHTML(item.price)}</p>
+          <p>${escapeHTML(item.description)}</p>
+          <div class="action-row">
+            <button class="ghost-action" type="button" data-package-id="${escapeHTML(item.id)}">生成</button>
+            <button class="ghost-action" type="button" data-push-package-id="${escapeHTML(item.id)}">推送</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+async function loadPackages() {
+  try {
+    const response = await fetch("/api/packages");
+    renderPackages(await response.json());
+  } catch {
+    outputs.packages.textContent = "服务包读取失败。";
+  }
+}
+
+async function generatePackage(packageId, push = false) {
+  outputs.packages.textContent = push ? "正在生成并推送..." : "正在生成服务包交付内容...";
+
+  try {
+    const response = await fetch(`/api/packages/${encodeURIComponent(packageId)}/${push ? "push" : "generate"}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getData()),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "package failed");
+    }
+
+    const result = data.result || data;
+    outputs.packages.textContent = [
+      result.title,
+      result.summary,
+      "",
+      result.deliverable,
+      push ? `\n推送状态：${data.pushed ? "已发送" : data.skipped ? "未配置 Webhook" : "未发送"}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } catch {
+    outputs.packages.textContent = "生成失败，请检查后端 Agent 或 OpenClaw 配置。";
+  }
+}
+
 $("#generateAll").addEventListener("click", generateAll);
 $("#answerQuestion").addEventListener("click", answerQuestion);
 $("#generateWechatReply")?.addEventListener("click", () => handleWechatInteraction(false));
@@ -444,6 +504,19 @@ $("#useManualData")?.addEventListener("click", () => {
   outputs.dataSource.innerHTML = "<p>已切换为手动录入。</p>";
 });
 $("#refreshTasks")?.addEventListener("click", loadTasks);
+$("#refreshPackages")?.addEventListener("click", loadPackages);
+$("#packageList")?.addEventListener("click", (event) => {
+  const generateButton = event.target.closest("[data-package-id]");
+  if (generateButton) {
+    generatePackage(generateButton.dataset.packageId, false);
+    return;
+  }
+
+  const pushButton = event.target.closest("[data-push-package-id]");
+  if (pushButton) {
+    generatePackage(pushButton.dataset.pushPackageId, true);
+  }
+});
 $("#taskList")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-task-id]");
   if (button) {
@@ -473,3 +546,4 @@ renderWorkflow(localFallback(getData()));
 loadWechatStatus();
 loadFeishuStatus();
 loadTasks();
+loadPackages();

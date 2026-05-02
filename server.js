@@ -758,6 +758,71 @@ async function runCustomerWorkflow(metrics, question) {
   return growthAgent.serviceAgent || growthAgent;
 }
 
+async function runPackageWorkflow(packageId, metrics, options = {}) {
+  const question = field(options.question, "今天怎样提升复购和到店？");
+
+  if (packageId === "daily-report") {
+    const workflow = await runDailyWorkflow(metrics, question);
+    return {
+      packageId,
+      title: "日报自动推送",
+      summary: workflow.managerAgent?.summary || workflow.dataAgent?.issue,
+      deliverable: workflow.managerAgent?.report || "",
+      pushText: workflow.managerAgent?.report || workflow.managerAgent?.summary || "今日日报已生成。",
+    };
+  }
+
+  if (packageId === "private-scripts") {
+    const scenario = field(options.scenario, "老客复购、减脂咨询、下午低峰唤醒");
+    const result = await runAgent(
+      "growth",
+      { metrics, scenario, question },
+      `{ "title": "私域话术包标题", "scripts": ["可直接发送的话术"], "commentReplies": ["评论区回复"], "privateActions": ["私域动作"] }`,
+    );
+    return {
+      packageId,
+      title: result.title || "私域话术包",
+      summary: "适合微信、社群、评论区和企微触达。",
+      deliverable: [...(result.scripts || []), ...(result.commentReplies || []), ...(result.privateActions || [])].join("\n\n"),
+      data: result,
+    };
+  }
+
+  if (packageId === "content-calendar") {
+    const result = await runAgent(
+      "media",
+      { metrics, days: 7, goal: "一周内容日历，服务到店、复购和新品测试" },
+      `{ "title": "内容日历标题", "calendar": [{ "day": "Day 1", "topic": "选题", "title": "标题", "channel": "发布渠道", "hook": "开头钩子", "conversionLine": "门店转化句" }] }`,
+    );
+    return {
+      packageId,
+      title: result.title || "7 天内容日历",
+      summary: "小红书、抖音、朋友圈可执行内容排期。",
+      deliverable: (result.calendar || [])
+        .map((item) => `${item.day}｜${item.channel}\n${item.title}\n${item.hook}\n${item.conversionLine}`)
+        .join("\n\n"),
+      data: result,
+    };
+  }
+
+  if (packageId === "member-wakeup") {
+    const result = await runAgent(
+      "growth",
+      { metrics, segment: "沉睡 30 天以上、累计消费 200 元以上会员", goal: "唤醒复购" },
+      `{ "title": "会员唤醒方案", "segments": ["人群分层"], "scripts": ["唤醒话术"], "offers": ["建议权益"], "followUp": ["跟进动作"] }`,
+    );
+    return {
+      packageId,
+      title: result.title || "会员唤醒方案",
+      summary: "用于老客复购、社群触达和店长跟进。",
+      deliverable: [...(result.segments || []), ...(result.scripts || []), ...(result.offers || []), ...(result.followUp || [])].join("\n\n"),
+      data: result,
+    };
+  }
+
+  throw new Error(`Unknown package: ${packageId}`);
+}
+
 async function sendWechatText(content) {
   if (!process.env.WECHAT_OUTBOUND_WEBHOOK) {
     return { ok: false, skipped: true, reason: "WECHAT_OUTBOUND_WEBHOOK is not configured." };
@@ -969,6 +1034,57 @@ app.post("/api/workflows/customer", async (req, res) => {
       message: error.message,
       fallback: localFallback(metrics, question).serviceAgent,
     });
+  }
+});
+
+app.get("/api/packages", (_req, res) => {
+  res.json({
+    packages: [
+      {
+        id: "daily-report",
+        name: "日报自动推送",
+        price: "¥299/月/店",
+        description: "每天自动生成经营日报、主推产品、员工动作，并推送到微信/企微群。",
+      },
+      {
+        id: "private-scripts",
+        name: "私域话术包",
+        price: "¥399/月/店",
+        description: "围绕复购、减脂咨询、活动转化生成可直接发送的话术。",
+      },
+      {
+        id: "content-calendar",
+        name: "内容日历",
+        price: "¥699/月/店",
+        description: "每周生成小红书、抖音、朋友圈内容排期和门店转化句。",
+      },
+      {
+        id: "member-wakeup",
+        name: "会员唤醒",
+        price: "¥599/月/店",
+        description: "按沉睡会员和消费层级生成唤醒策略、权益和跟进话术。",
+      },
+    ],
+  });
+});
+
+app.post("/api/packages/:id/generate", async (req, res) => {
+  const metrics = normalizeMetrics(req.body || {});
+  try {
+    res.json(await runPackageWorkflow(req.params.id, metrics, req.body || {}));
+  } catch (error) {
+    res.status(500).json({ error: "package_generation_failed", message: error.message });
+  }
+});
+
+app.post("/api/packages/:id/push", async (req, res) => {
+  const metrics = normalizeMetrics(req.body || {});
+  try {
+    const result = await runPackageWorkflow(req.params.id, metrics, req.body || {});
+    const push = await sendWechatText(result.pushText || result.deliverable || result.summary);
+    res.json({ ok: true, result, pushed: push.ok, skipped: push.skipped });
+  } catch (error) {
+    res.status(500).json({ error: "package_push_failed", message: error.message });
   }
 });
 
