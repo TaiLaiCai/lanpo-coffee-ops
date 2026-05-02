@@ -390,6 +390,25 @@ textarea {
   line-height: 1.6;
 }
 
+.task-schedule {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.task-schedule input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(120, 210, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(3, 11, 20, 0.8);
+  color: var(--ink);
+  outline: none;
+}
+
 .task-item button {
   width: fit-content;
 }

@@ -19,6 +19,7 @@
 
         <nav class="nav" aria-label="主导航">
           <a href="#dashboard" class="active">运营交互台</a>
+          <a href="#data-source">真实数据</a>
           <a href="#interaction">互动中心</a>
           <a href="#tasks">定时任务</a>
           <a href="#agents">协作说明</a>
@@ -43,6 +44,24 @@
             生成今日方案
           </button>
         </header>
+
+        <section class="module" id="data-source">
+          <div class="module-head">
+            <div>
+              <p class="eyebrow">真实数据源</p>
+              <h2>飞书多维表格同步</h2>
+            </div>
+            <span class="status" id="feishuStatus">检测中</span>
+          </div>
+          <div class="output">
+            <p>绑定飞书后，可直接拾取每日经营日报和内容发布数据，填入下方经营指标。</p>
+          </div>
+          <div class="action-row">
+            <button class="secondary-action" id="syncFeishu" type="button">从飞书同步数据</button>
+            <button class="ghost-action" id="useManualData" type="button">继续手动录入</button>
+          </div>
+          <div class="output compact" id="dataSourceOutput"></div>
+        </section>
 
         <section class="metrics" aria-label="经营关键数据">
           <label>

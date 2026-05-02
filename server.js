@@ -6,6 +6,7 @@ import path from "node:path";
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const runtimeConfigPath = path.join(process.cwd(), "data", "runtime-config.json");
 const providerError = validateProviderConfig();
 const provider = providerError
   ? "invalid-config"
@@ -28,20 +29,18 @@ const agentsAdminPassword = process.env.AGENTS_ADMIN_PASSWORD || "6666";
 const authSecret = process.env.AGENTS_AUTH_SECRET || process.env.MINIMAX_API_KEY || process.env.OPENAI_API_KEY || "lanpo-local";
 const taskRuns = [];
 const taskState = new Map();
-const scheduledTasks = [
-  {
-    id: "daily-brief",
+const defaultTaskDefinitions = {
+  "daily-brief": {
     name: "每日晨会推送",
     schedule: process.env.DAILY_BRIEF_TIME || "09:00",
     description: "生成今日经营方案，并推送到微信/企微 Webhook。",
   },
-  {
-    id: "member-wakeup",
+  "member-wakeup": {
     name: "会员唤醒提醒",
     schedule: process.env.MEMBER_WAKEUP_TIME || "MON 10:00",
     description: "每周筛选沉睡会员动作，提醒店长做私域触达。",
   },
-];
+};
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false }));
@@ -67,6 +66,47 @@ function validateProviderConfig() {
     validateKey("MINIMAX_API_KEY", process.env.MINIMAX_API_KEY) ||
     validateKey("OPENAI_API_KEY", process.env.OPENAI_API_KEY)
   );
+}
+
+function loadRuntimeConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(runtimeConfigPath, "utf8"));
+  } catch {
+    return { tasks: {} };
+  }
+}
+
+function saveRuntimeConfig(config) {
+  fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true });
+  fs.writeFileSync(runtimeConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+function getScheduledTasks() {
+  const config = loadRuntimeConfig();
+  return Object.entries(defaultTaskDefinitions).map(([id, definition]) => ({
+    id,
+    ...definition,
+    ...(config.tasks?.[id] || {}),
+  }));
+}
+
+function updateTaskSchedule(taskId, schedule) {
+  if (!defaultTaskDefinitions[taskId]) {
+    throw new Error(`Unknown task: ${taskId}`);
+  }
+
+  if (!/^(\d{2}:\d{2}|[A-Z]{3} \d{2}:\d{2})$/.test(schedule)) {
+    throw new Error("计划格式应为 09:00 或 MON 10:00");
+  }
+
+  const config = loadRuntimeConfig();
+  config.tasks = config.tasks || {};
+  config.tasks[taskId] = {
+    ...(config.tasks[taskId] || {}),
+    schedule,
+  };
+  saveRuntimeConfig(config);
+  return getScheduledTasks().find((task) => task.id === taskId);
 }
 
 const agentFiles = {
@@ -293,17 +333,20 @@ function minimaxEndpoint() {
     : `${baseURL}/text/chatcompletion_v2`;
 }
 
-async function postJsonWithTimeout(url, body, headers) {
+async function postJsonWithTimeout(url, body, headers, method = "POST") {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), agentTimeoutMs);
+  const request = {
+    method,
+    headers,
+    signal: controller.signal,
+  };
+  if (body !== null && body !== undefined) {
+    request.body = JSON.stringify(body);
+  }
 
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const response = await fetch(url, request);
     const text = await response.text();
 
     if (!response.ok) {
@@ -547,6 +590,101 @@ function defaultMetrics(overrides = {}) {
   });
 }
 
+async function getFeishuTenantToken() {
+  if (!process.env.FEISHU_APP_ID || !process.env.FEISHU_APP_SECRET) {
+    throw new Error("FEISHU_APP_ID or FEISHU_APP_SECRET is not configured.");
+  }
+
+  const response = await postJsonWithTimeout(
+    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+    {
+      app_id: process.env.FEISHU_APP_ID,
+      app_secret: process.env.FEISHU_APP_SECRET,
+    },
+    { "Content-Type": "application/json" },
+  );
+
+  if (!response.tenant_access_token) {
+    throw new Error(response.msg || "Feishu tenant token missing.");
+  }
+
+  return response.tenant_access_token;
+}
+
+async function fetchFeishuRecords(tableId, pageSize = 20) {
+  if (!process.env.FEISHU_BITABLE_APP_TOKEN || !tableId) {
+    return [];
+  }
+
+  const token = await getFeishuTenantToken();
+  const url = new URL(
+    `https://open.feishu.cn/open-apis/bitable/v1/apps/${process.env.FEISHU_BITABLE_APP_TOKEN}/tables/${tableId}/records`,
+  );
+  url.searchParams.set("page_size", String(pageSize));
+
+  const response = await postJsonWithTimeout(
+    url.toString(),
+    null,
+    {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    "GET",
+  );
+
+  return response.data?.items || [];
+}
+
+function getRecordField(record, names, fallback = "") {
+  const fields = record.fields || {};
+  for (const name of names) {
+    if (fields[name] !== undefined && fields[name] !== null && fields[name] !== "") {
+      return fields[name];
+    }
+  }
+  return fallback;
+}
+
+function normalizeFeishuText(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => item.text || item.name || String(item)).join("、");
+  }
+  return String(value ?? "");
+}
+
+function latestRecord(records, dateFieldNames) {
+  return [...records].sort((a, b) => {
+    const left = String(getRecordField(a, dateFieldNames, ""));
+    const right = String(getRecordField(b, dateFieldNames, ""));
+    return right.localeCompare(left);
+  })[0];
+}
+
+async function fetchFeishuMetrics() {
+  const dailyRecords = await fetchFeishuRecords(process.env.FEISHU_DAILY_TABLE_ID);
+  const contentRecords = await fetchFeishuRecords(process.env.FEISHU_CONTENT_TABLE_ID);
+  const daily = latestRecord(dailyRecords, ["日期", "date"]);
+  const content = latestRecord(contentRecords, ["发布时间", "日期", "date"]);
+
+  if (!daily && !content) {
+    throw new Error("没有读取到飞书记录，请检查 app_token、table_id 和应用权限。");
+  }
+
+  return normalizeMetrics({
+    date: normalizeFeishuText(getRecordField(daily || {}, ["日期", "date"], new Date().toLocaleDateString("zh-CN"))),
+    weather: normalizeFeishuText(getRecordField(daily || {}, ["天气", "weather"], "晴天")),
+    revenue: getRecordField(daily || {}, ["堂食营业额", "营业额", "revenue"], 0),
+    cups: getRecordField(daily || {}, ["堂食杯量", "杯量", "cups"], 0),
+    ticket: getRecordField(daily || {}, ["堂食客单价", "客单价", "ticket"], 0),
+    views: getRecordField(content || {}, ["72h曝光", "24h曝光", "浏览", "views"], 0),
+    engagement:
+      safeNumber(getRecordField(content || {}, ["点赞", "likes"], 0)) +
+      safeNumber(getRecordField(content || {}, ["收藏", "收藏评论", "engagement"], 0)) +
+      safeNumber(getRecordField(content || {}, ["评论数", "comments"], 0)),
+    mainProducts: normalizeFeishuText(getRecordField(daily || {}, ["主销TOP3", "主销产品", "mainProducts"], "美式、拿铁、澳白")),
+  });
+}
+
 async function runDailyWorkflow(metrics, question = "减脂期能喝拿铁吗？") {
   if (provider === "local-fallback" || provider === "invalid-config") {
     return localFallback(metrics, question);
@@ -696,7 +834,7 @@ function shouldRunTask(task, parts) {
 function startScheduler() {
   setInterval(() => {
     const parts = shanghaiNowParts();
-    for (const task of scheduledTasks) {
+    for (const task of getScheduledTasks()) {
       if (!shouldRunTask(task, parts)) {
         continue;
       }
@@ -836,10 +974,18 @@ app.post("/api/workflows/customer", async (req, res) => {
 
 app.get("/api/tasks", (_req, res) => {
   res.json({
-    tasks: scheduledTasks,
+    tasks: getScheduledTasks(),
     runs: taskRuns,
     webhookConfigured: Boolean(process.env.WECHAT_OUTBOUND_WEBHOOK),
   });
+});
+
+app.patch("/api/tasks/:id", (req, res) => {
+  try {
+    res.json(updateTaskSchedule(req.params.id, String(req.body?.schedule || "")));
+  } catch (error) {
+    res.status(400).json({ error: "task_update_failed", message: error.message });
+  }
 });
 
 app.post("/api/tasks/:id/run", async (req, res) => {
@@ -855,7 +1001,29 @@ app.get("/api/integrations/wechat", (_req, res) => {
     outboundWebhook: Boolean(process.env.WECHAT_OUTBOUND_WEBHOOK),
     verifyToken: Boolean(process.env.WECHAT_VERIFY_TOKEN),
     webhookUrl: "/api/wechat/webhook",
+    bindingOptions: [
+      "企微群机器人：最快可用，适合把日报和客服建议推到运营群。",
+      "公众号/服务号：需要微信公众平台配置服务器 URL 和 Token。",
+      "企微应用：适合一对一客户运营，需要企业微信应用凭证和客户联系权限。",
+    ],
   });
+});
+
+app.get("/api/integrations/feishu", (_req, res) => {
+  res.json({
+    configured: Boolean(process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET && process.env.FEISHU_BITABLE_APP_TOKEN),
+    appToken: Boolean(process.env.FEISHU_BITABLE_APP_TOKEN),
+    dailyTable: Boolean(process.env.FEISHU_DAILY_TABLE_ID),
+    contentTable: Boolean(process.env.FEISHU_CONTENT_TABLE_ID),
+  });
+});
+
+app.post("/api/data/feishu/sync", async (_req, res) => {
+  try {
+    res.json({ ok: true, metrics: await fetchFeishuMetrics() });
+  } catch (error) {
+    res.status(500).json({ error: "feishu_sync_failed", message: error.message });
+  }
 });
 
 app.get("/api/wechat/webhook", (req, res) => {

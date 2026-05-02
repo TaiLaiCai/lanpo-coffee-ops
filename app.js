@@ -17,6 +17,7 @@ const outputs = {
   service: $("#serviceOutput"),
   wechat: $("#wechatOutput"),
   tasks: $("#taskOutput"),
+  dataSource: $("#dataSourceOutput"),
 };
 
 const today = new Intl.DateTimeFormat("zh-CN", {
@@ -214,6 +215,18 @@ function renderWorkflow(workflow) {
   outputs.report.textContent = managerAgent.report || "";
 }
 
+function applyMetrics(metrics) {
+  fields.revenue.value = Math.round(metrics.revenue || 0);
+  fields.cups.value = Math.round(metrics.cups || 0);
+  fields.ticket.value = Math.round(metrics.ticket || 0);
+  fields.views.value = Math.round(metrics.views || 0);
+  fields.engagement.value = Math.round(metrics.engagement || 0);
+  if (metrics.weather) {
+    fields.weather.value = metrics.weather;
+  }
+  renderWorkflow(localFallback(getData()));
+}
+
 function setLoading(isLoading) {
   $("#generateAll").disabled = isLoading;
   $("#answerQuestion").disabled = isLoading;
@@ -280,6 +293,42 @@ async function loadWechatStatus() {
   }
 }
 
+async function loadFeishuStatus() {
+  const status = $("#feishuStatus");
+  if (!status) return;
+
+  try {
+    const response = await fetch("/api/integrations/feishu");
+    const data = await response.json();
+    status.textContent = data.configured && data.dailyTable ? "已绑定" : "未绑定";
+  } catch {
+    status.textContent = "未连接";
+  }
+}
+
+async function syncFeishuData() {
+  $("#syncFeishu").disabled = true;
+  outputs.dataSource.innerHTML = "<p>正在读取飞书数据...</p>";
+
+  try {
+    const response = await fetch("/api/data/feishu/sync", { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "sync failed");
+    }
+
+    applyMetrics(data.metrics);
+    outputs.dataSource.innerHTML = `
+      <p><strong>已同步：</strong>${escapeHTML(data.metrics.date)}</p>
+      <p>营业额 ${yuan(data.metrics.revenue)} · 杯量 ${escapeHTML(data.metrics.cups)} · 客单价 ${yuan(data.metrics.ticket)}</p>
+    `;
+  } catch {
+    outputs.dataSource.innerHTML = "<p>飞书同步失败，请检查飞书应用凭证、多维表格 Token、数据表 ID 和应用权限。</p>";
+  } finally {
+    $("#syncFeishu").disabled = false;
+  }
+}
+
 async function handleWechatInteraction(push = false) {
   const message = $("#wechatMessage").value.trim();
   if (!message) return;
@@ -321,8 +370,14 @@ function renderTasks(data) {
         <article class="task-item">
           <h3>${escapeHTML(task.name)}</h3>
           <p>${escapeHTML(task.description)}</p>
-          <p><strong>计划：</strong>${escapeHTML(task.schedule)}</p>
-          <button class="ghost-action" type="button" data-task-id="${escapeHTML(task.id)}">立即执行</button>
+          <label class="task-schedule">
+            <span>计划</span>
+            <input value="${escapeHTML(task.schedule)}" data-task-schedule="${escapeHTML(task.id)}" />
+          </label>
+          <div class="action-row">
+            <button class="ghost-action" type="button" data-save-task-id="${escapeHTML(task.id)}">保存时间</button>
+            <button class="ghost-action" type="button" data-task-id="${escapeHTML(task.id)}">立即执行</button>
+          </div>
         </article>
       `,
     )
@@ -358,15 +413,47 @@ async function runTask(taskId) {
   }
 }
 
+async function saveTaskSchedule(taskId) {
+  const input = document.querySelector(`[data-task-schedule="${CSS.escape(taskId)}"]`);
+  if (!input) return;
+
+  outputs.tasks.innerHTML = "<p>正在保存时间...</p>";
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schedule: input.value.trim() }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "save failed");
+    }
+    outputs.tasks.innerHTML = `<p><strong>已保存：</strong>${escapeHTML(data.name)} · ${escapeHTML(data.schedule)}</p>`;
+    await loadTasks();
+  } catch {
+    outputs.tasks.innerHTML = "<p>保存失败。时间格式请用 09:00 或 MON 10:00。</p>";
+  }
+}
+
 $("#generateAll").addEventListener("click", generateAll);
 $("#answerQuestion").addEventListener("click", answerQuestion);
 $("#generateWechatReply")?.addEventListener("click", () => handleWechatInteraction(false));
 $("#pushWechatReply")?.addEventListener("click", () => handleWechatInteraction(true));
+$("#syncFeishu")?.addEventListener("click", syncFeishuData);
+$("#useManualData")?.addEventListener("click", () => {
+  outputs.dataSource.innerHTML = "<p>已切换为手动录入。</p>";
+});
 $("#refreshTasks")?.addEventListener("click", loadTasks);
 $("#taskList")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-task-id]");
   if (button) {
     runTask(button.dataset.taskId);
+    return;
+  }
+
+  const saveButton = event.target.closest("[data-save-task-id]");
+  if (saveButton) {
+    saveTaskSchedule(saveButton.dataset.saveTaskId);
   }
 });
 $("#copyReport").addEventListener("click", async () => {
@@ -384,4 +471,5 @@ Object.values(fields).forEach((field) => {
 
 renderWorkflow(localFallback(getData()));
 loadWechatStatus();
+loadFeishuStatus();
 loadTasks();
