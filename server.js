@@ -26,6 +26,22 @@ const client = provider === "openai" ? new OpenAI({ apiKey: process.env.OPENAI_A
 const agentTimeoutMs = Number(process.env.AGENT_TIMEOUT_MS || 45000);
 const agentsAdminPassword = process.env.AGENTS_ADMIN_PASSWORD || "6666";
 const authSecret = process.env.AGENTS_AUTH_SECRET || process.env.MINIMAX_API_KEY || process.env.OPENAI_API_KEY || "lanpo-local";
+const taskRuns = [];
+const taskState = new Map();
+const scheduledTasks = [
+  {
+    id: "daily-brief",
+    name: "每日晨会推送",
+    schedule: process.env.DAILY_BRIEF_TIME || "09:00",
+    description: "生成今日经营方案，并推送到微信/企微 Webhook。",
+  },
+  {
+    id: "member-wakeup",
+    name: "会员唤醒提醒",
+    schedule: process.env.MEMBER_WAKEUP_TIME || "MON 10:00",
+    description: "每周筛选沉睡会员动作，提醒店长做私域触达。",
+  },
+];
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false }));
@@ -518,6 +534,181 @@ ${product}
 今天重点看进店流量、低峰杯量和内容到店转化。`;
 }
 
+function defaultMetrics(overrides = {}) {
+  return normalizeMetrics({
+    date: new Date().toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" }),
+    weather: "晴天",
+    revenue: 2680,
+    cups: 96,
+    ticket: 28,
+    views: 1240,
+    engagement: 68,
+    ...overrides,
+  });
+}
+
+async function runDailyWorkflow(metrics, question = "减脂期能喝拿铁吗？") {
+  if (provider === "local-fallback" || provider === "invalid-config") {
+    return localFallback(metrics, question);
+  }
+
+  const dataAgent = await runAgent(
+    "data",
+    { metrics },
+    `{ "issue": "一句核心问题", "signals": ["关键数据"], "risks": ["风险"], "actions": ["明日动作"] }`,
+  );
+
+  const productAgent = await runAgent(
+    "product",
+    { metrics, dataAgent },
+    `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
+  );
+
+  const mediaAgent = await runAgent(
+    "media",
+    { metrics, dataAgent, productAgent },
+    `{ "topic": "选题", "title": "标题", "cover": "封面文案", "videoStructure": ["结构"], "body": "小红书正文", "commentGuide": "评论区引导", "conversionLine": "门店转化句" }`,
+  );
+
+  const growthAgent = await runAgent(
+    "growth",
+    { question, metrics, dataAgent, productAgent, mediaAgent },
+    `{ "question": "顾客问题", "reply": "可直接发送的回复", "privateActions": ["私域动作"], "commentReplies": ["评论区回复"] }`,
+  );
+  const contentAgent = mediaAgent;
+  const serviceAgent = growthAgent.serviceAgent || growthAgent;
+
+  const managerAgent = await runAgent(
+    "manager",
+    { metrics, dataAgent, productAgent, mediaAgent, growthAgent },
+    `{ "summary": "今日总判断", "priority": ["优先动作"], "report": "完整日报文本" }`,
+  );
+
+  return {
+    mode: `${provider}-agents`,
+    dataAgent,
+    productAgent,
+    mediaAgent,
+    growthAgent,
+    contentAgent,
+    serviceAgent,
+    managerAgent,
+  };
+}
+
+async function runCustomerWorkflow(metrics, question) {
+  if (provider === "local-fallback" || provider === "invalid-config") {
+    return localFallback(metrics, question).serviceAgent;
+  }
+
+  const productAgent = await runAgent(
+    "product",
+    { metrics },
+    `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
+  );
+  const mediaAgent = await runAgent(
+    "media",
+    { metrics, productAgent },
+    `{ "topic": "可选内容选题", "title": "可选标题", "cover": "可选封面文案", "videoStructure": ["可选结构"], "body": "可选正文", "commentGuide": "可选评论引导", "conversionLine": "可选门店转化句" }`,
+  );
+  const growthAgent = await runAgent(
+    "growth",
+    { question, metrics, productAgent, mediaAgent },
+    `{ "question": "顾客问题", "reply": "可直接发送的回复", "privateActions": ["私域动作"], "commentReplies": ["评论区回复"] }`,
+  );
+
+  return growthAgent.serviceAgent || growthAgent;
+}
+
+async function sendWechatText(content) {
+  if (!process.env.WECHAT_OUTBOUND_WEBHOOK) {
+    return { ok: false, skipped: true, reason: "WECHAT_OUTBOUND_WEBHOOK is not configured." };
+  }
+
+  const response = await postJsonWithTimeout(
+    process.env.WECHAT_OUTBOUND_WEBHOOK,
+    {
+      msgtype: "text",
+      text: {
+        content,
+      },
+    },
+    { "Content-Type": "application/json" },
+  );
+
+  return { ok: true, response };
+}
+
+function recordTaskRun(taskId, status, detail) {
+  const item = {
+    taskId,
+    status,
+    detail,
+    at: new Date().toISOString(),
+  };
+  taskRuns.unshift(item);
+  taskRuns.splice(30);
+  return item;
+}
+
+async function runScheduledTask(taskId, source = "manual") {
+  if (taskId === "daily-brief") {
+    const workflow = await runDailyWorkflow(defaultMetrics(), "今天适合推什么给老客？");
+    const report = workflow.managerAgent?.report || workflow.managerAgent?.summary || "今日方案已生成。";
+    const push = await sendWechatText(report);
+    return recordTaskRun(taskId, "success", { source, pushed: push.ok, skipped: push.skipped, report });
+  }
+
+  if (taskId === "member-wakeup") {
+    const message = "会员唤醒提醒：筛选沉睡 30 天以上、累计消费 200 元以上的老客，今天优先推送低糖拿铁/冰美式第二杯优惠。";
+    const push = await sendWechatText(message);
+    return recordTaskRun(taskId, "success", { source, pushed: push.ok, skipped: push.skipped, message });
+  }
+
+  throw new Error(`Unknown task: ${taskId}`);
+}
+
+function shanghaiNowParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function shouldRunTask(task, parts) {
+  const minuteKey = `${parts.weekday}-${parts.hour}:${parts.minute}`;
+  if (taskState.get(task.id) === minuteKey) {
+    return false;
+  }
+
+  if (/^[A-Z]{3} \d{2}:\d{2}$/.test(task.schedule)) {
+    const [weekday, time] = task.schedule.split(" ");
+    return parts.weekday.toUpperCase() === weekday && `${parts.hour}:${parts.minute}` === time;
+  }
+
+  return `${parts.hour}:${parts.minute}` === task.schedule;
+}
+
+function startScheduler() {
+  setInterval(() => {
+    const parts = shanghaiNowParts();
+    for (const task of scheduledTasks) {
+      if (!shouldRunTask(task, parts)) {
+        continue;
+      }
+
+      taskState.set(task.id, `${parts.weekday}-${parts.hour}:${parts.minute}`);
+      runScheduledTask(task.id, "schedule").catch((error) => {
+        recordTaskRun(task.id, "failed", { source: "schedule", error: error.message });
+      });
+    }
+  }, 60 * 1000);
+}
+
 app.get("/agents", (req, res) => {
   if (!isAgentsAdmin(req)) {
     res.status(401).send(renderAgentsLogin());
@@ -602,26 +793,9 @@ app.get("/api/agent-check", async (_req, res) => {
   }
 
   try {
-    const result = await runAgent(
-      "growth",
-      {
-        question: "减脂期能喝拿铁吗？",
-        metrics: normalizeMetrics({ weather: "晴天", revenue: 2680, cups: 96, ticket: 28 }),
-      },
-      `{
-        "contentAgent": {
-          "topic": "可选内容选题",
-          "title": "可选标题",
-          "cover": "可选封面文案",
-          "videoStructure": ["可选结构"],
-          "body": "可选正文",
-          "commentGuide": "可选评论引导"
-        },
-        "serviceAgent": {
-          "question": "顾客问题",
-          "reply": "可直接发送的回复"
-        }
-      }`,
+    const result = await runCustomerWorkflow(
+      normalizeMetrics({ weather: "晴天", revenue: 2680, cups: 96, ticket: 28 }),
+      "减脂期能喝拿铁吗？",
     );
 
     res.json({ ok: true, provider, model, result });
@@ -634,54 +808,8 @@ app.post("/api/workflows/daily", async (req, res) => {
   const metrics = normalizeMetrics(req.body || {});
   const question = field(req.body?.question, "减脂期能喝拿铁吗？");
 
-  if (provider === "local-fallback" || provider === "invalid-config") {
-    res.json(localFallback(metrics, question));
-    return;
-  }
-
   try {
-    const dataAgent = await runAgent(
-      "data",
-      { metrics },
-      `{ "issue": "一句核心问题", "signals": ["关键数据"], "risks": ["风险"], "actions": ["明日动作"] }`,
-    );
-
-    const productAgent = await runAgent(
-      "product",
-      { metrics, dataAgent },
-      `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
-    );
-
-    const mediaAgent = await runAgent(
-      "media",
-      { metrics, dataAgent, productAgent },
-      `{ "topic": "选题", "title": "标题", "cover": "封面文案", "videoStructure": ["结构"], "body": "小红书正文", "commentGuide": "评论区引导", "conversionLine": "门店转化句" }`,
-    );
-
-    const growthAgent = await runAgent(
-      "growth",
-      { question, metrics, dataAgent, productAgent, mediaAgent },
-      `{ "question": "顾客问题", "reply": "可直接发送的回复", "privateActions": ["私域动作"], "commentReplies": ["评论区回复"] }`,
-    );
-    const contentAgent = mediaAgent;
-    const serviceAgent = growthAgent.serviceAgent || growthAgent;
-
-    const managerAgent = await runAgent(
-      "manager",
-      { metrics, dataAgent, productAgent, mediaAgent, growthAgent },
-      `{ "summary": "今日总判断", "priority": ["优先动作"], "report": "完整日报文本" }`,
-    );
-
-    res.json({
-      mode: `${provider}-agents`,
-      dataAgent,
-      productAgent,
-      mediaAgent,
-      growthAgent,
-      contentAgent,
-      serviceAgent,
-      managerAgent,
-    });
+    res.json(await runDailyWorkflow(metrics, question));
   } catch (error) {
     res.status(500).json({
       error: "agent_workflow_failed",
@@ -695,29 +823,8 @@ app.post("/api/workflows/customer", async (req, res) => {
   const metrics = normalizeMetrics(req.body || {});
   const question = field(req.body?.question, "减脂期能喝拿铁吗？");
 
-  if (provider === "local-fallback" || provider === "invalid-config") {
-    res.json(localFallback(metrics, question).serviceAgent);
-    return;
-  }
-
   try {
-    const productAgent = await runAgent(
-      "product",
-      { metrics },
-      `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
-    );
-    const mediaAgent = await runAgent(
-      "media",
-      { metrics, productAgent },
-      `{ "topic": "可选内容选题", "title": "可选标题", "cover": "可选封面文案", "videoStructure": ["可选结构"], "body": "可选正文", "commentGuide": "可选评论引导", "conversionLine": "可选门店转化句" }`,
-    );
-    const growthAgent = await runAgent(
-      "growth",
-      { question, metrics, productAgent, mediaAgent },
-      `{ "question": "顾客问题", "reply": "可直接发送的回复", "privateActions": ["私域动作"], "commentReplies": ["评论区回复"] }`,
-    );
-
-    res.json(growthAgent.serviceAgent || growthAgent);
+    res.json(await runCustomerWorkflow(metrics, question));
   } catch (error) {
     res.status(500).json({
       error: "customer_workflow_failed",
@@ -727,6 +834,76 @@ app.post("/api/workflows/customer", async (req, res) => {
   }
 });
 
+app.get("/api/tasks", (_req, res) => {
+  res.json({
+    tasks: scheduledTasks,
+    runs: taskRuns,
+    webhookConfigured: Boolean(process.env.WECHAT_OUTBOUND_WEBHOOK),
+  });
+});
+
+app.post("/api/tasks/:id/run", async (req, res) => {
+  try {
+    res.json(await runScheduledTask(req.params.id, "manual"));
+  } catch (error) {
+    res.status(500).json({ error: "task_failed", message: error.message });
+  }
+});
+
+app.get("/api/integrations/wechat", (_req, res) => {
+  res.json({
+    outboundWebhook: Boolean(process.env.WECHAT_OUTBOUND_WEBHOOK),
+    verifyToken: Boolean(process.env.WECHAT_VERIFY_TOKEN),
+    webhookUrl: "/api/wechat/webhook",
+  });
+});
+
+app.get("/api/wechat/webhook", (req, res) => {
+  const token = process.env.WECHAT_VERIFY_TOKEN;
+  if (!token || req.query.token !== token) {
+    res.status(403).send("invalid token");
+    return;
+  }
+
+  res.send(String(req.query.echostr || "ok"));
+});
+
+app.post("/api/wechat/webhook", async (req, res) => {
+  const token = process.env.WECHAT_VERIFY_TOKEN;
+  if (token && req.query.token !== token && req.headers["x-wechat-token"] !== token) {
+    res.status(403).json({ error: "invalid_token" });
+    return;
+  }
+
+  const text = field(req.body?.Content || req.body?.text || req.body?.message, "");
+  if (!text) {
+    res.status(400).json({ error: "missing_message" });
+    return;
+  }
+
+  try {
+    const reply = await runCustomerWorkflow(defaultMetrics(), text);
+    const push = await sendWechatText(reply.reply || String(reply));
+    res.json({ ok: true, reply, pushed: push.ok, skipped: push.skipped });
+  } catch (error) {
+    res.status(500).json({ error: "wechat_workflow_failed", message: error.message });
+  }
+});
+
+app.post("/api/interactions/wechat", async (req, res) => {
+  const metrics = normalizeMetrics(req.body || {});
+  const question = field(req.body?.question || req.body?.message, "减脂期能喝拿铁吗？");
+
+  try {
+    const reply = await runCustomerWorkflow(metrics, question);
+    const push = req.body?.push ? await sendWechatText(reply.reply || String(reply)) : { ok: false, skipped: true };
+    res.json({ ok: true, reply, pushed: push.ok, skipped: push.skipped });
+  } catch (error) {
+    res.status(500).json({ error: "interaction_failed", message: error.message });
+  }
+});
+
 app.listen(port, () => {
+  startScheduler();
   console.log(`Lanpo coffee ops running on http://localhost:${port}`);
 });

@@ -19,6 +19,8 @@
 
         <nav class="nav" aria-label="主导航">
           <a href="#dashboard" class="active">运营交互台</a>
+          <a href="#interaction">互动中心</a>
+          <a href="#tasks">定时任务</a>
           <a href="#agents">协作说明</a>
           <a href="#report">运营日报</a>
           <a href="#workflow">工作流</a>
@@ -105,6 +107,43 @@
               </div>
             </div>
             <div class="output" id="productOutput"></div>
+          </article>
+        </section>
+
+        <section class="two-column" id="interaction">
+          <article class="module">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">微信 / 企微互动</p>
+                <h2>顾客消息处理</h2>
+              </div>
+              <span class="status" id="wechatStatus">检测中</span>
+            </div>
+            <label class="textarea-label">
+              顾客消息
+              <textarea id="wechatMessage">今天下午有什么适合不太甜的咖啡？</textarea>
+            </label>
+            <div class="action-row">
+              <button class="secondary-action" id="generateWechatReply" type="button">
+                生成互动回复
+              </button>
+              <button class="ghost-action" id="pushWechatReply" type="button">
+                推送到微信
+              </button>
+            </div>
+            <div class="output compact" id="wechatOutput"></div>
+          </article>
+
+          <article class="module" id="tasks">
+            <div class="module-head">
+              <div>
+                <p class="eyebrow">自动化</p>
+                <h2>定时任务</h2>
+              </div>
+              <button class="ghost-action" id="refreshTasks" type="button">刷新</button>
+            </div>
+            <div class="task-grid" id="taskList"></div>
+            <div class="output compact" id="taskOutput"></div>
           </article>
         </section>
 

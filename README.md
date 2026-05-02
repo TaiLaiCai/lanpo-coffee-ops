@@ -100,6 +100,51 @@ OPENCLAW_BASE_URL=http://127.0.0.1:18789
 
 OpenClaw Gateway 需要启用 OpenResponses HTTP 接口，后端会调用每个网关的 `/v1/responses`。
 
+## 日常使用
+
+前台 `https://sandlabs.cn` 现在有 3 个主要使用区：
+
+- 每日运营中控：录入营业额、杯量、客单价、内容数据，点击“生成今日方案”
+- 微信 / 企微互动：粘贴顾客消息，生成客服私域回复；配置 Webhook 后可直接推送
+- 定时任务：查看自动任务状态，也可以手动触发每日晨会推送和会员唤醒提醒
+
+## 微信 / 企微绑定
+
+基础 Webhook 方式适合先接企微群机器人或自建转发服务。在服务器 `/opt/lanpo-coffee-ops/.env` 配置：
+
+```bash
+WECHAT_OUTBOUND_WEBHOOK=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key
+WECHAT_VERIFY_TOKEN=自定义校验口令
+```
+
+重启服务：
+
+```bash
+sudo systemctl restart lanpo-coffee-ops
+```
+
+可用接口：
+
+- `POST /api/interactions/wechat`：前台互动中心使用，生成回复并可选择推送
+- `GET /api/wechat/webhook?token=xxx&echostr=ok`：微信/转发服务校验
+- `POST /api/wechat/webhook?token=xxx`：接收外部消息，自动调用客服私域 Agent
+
+## 定时任务
+
+默认按北京时间运行：
+
+```bash
+DAILY_BRIEF_TIME=09:00
+MEMBER_WAKEUP_TIME=MON 10:00
+```
+
+任务会在 Node 服务内运行：
+
+- 每日晨会推送：生成当日方案并推送到 `WECHAT_OUTBOUND_WEBHOOK`
+- 会员唤醒提醒：每周一 10:00 推送沉睡会员触达提醒
+
+前台也可以在“定时任务”区域手动执行。
+
 ## sandlabs.cn 部署
 
 服务器上执行：

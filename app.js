@@ -15,6 +15,8 @@ const outputs = {
   product: $("#productOutput"),
   report: $("#dailyReport"),
   service: $("#serviceOutput"),
+  wechat: $("#wechatOutput"),
+  tasks: $("#taskOutput"),
 };
 
 const today = new Intl.DateTimeFormat("zh-CN", {
@@ -265,8 +267,108 @@ async function answerQuestion() {
   }
 }
 
+async function loadWechatStatus() {
+  const status = $("#wechatStatus");
+  if (!status) return;
+
+  try {
+    const response = await fetch("/api/integrations/wechat");
+    const data = await response.json();
+    status.textContent = data.outboundWebhook ? "已绑定" : "未绑定";
+  } catch {
+    status.textContent = "未连接";
+  }
+}
+
+async function handleWechatInteraction(push = false) {
+  const message = $("#wechatMessage").value.trim();
+  if (!message) return;
+
+  $("#generateWechatReply").disabled = true;
+  $("#pushWechatReply").disabled = true;
+  outputs.wechat.innerHTML = "<p>客服私域 Agent 正在处理...</p>";
+
+  try {
+    const response = await fetch("/api/interactions/wechat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...getData(), question: message, push }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "interaction failed");
+    }
+
+    outputs.wechat.innerHTML = `
+      <p>${escapeHTML(data.reply?.reply || data.reply)}</p>
+      <p><strong>微信推送：</strong>${data.pushed ? "已发送" : data.skipped ? "未配置 Webhook" : "未发送"}</p>
+    `;
+  } catch {
+    outputs.wechat.innerHTML = "<p>互动生成失败，请检查后端 Agent 或微信配置。</p>";
+  } finally {
+    $("#generateWechatReply").disabled = false;
+    $("#pushWechatReply").disabled = false;
+  }
+}
+
+function renderTasks(data) {
+  const taskList = $("#taskList");
+  if (!taskList) return;
+
+  taskList.innerHTML = (data.tasks || [])
+    .map(
+      (task) => `
+        <article class="task-item">
+          <h3>${escapeHTML(task.name)}</h3>
+          <p>${escapeHTML(task.description)}</p>
+          <p><strong>计划：</strong>${escapeHTML(task.schedule)}</p>
+          <button class="ghost-action" type="button" data-task-id="${escapeHTML(task.id)}">立即执行</button>
+        </article>
+      `,
+    )
+    .join("");
+
+  const latest = data.runs?.[0];
+  outputs.tasks.innerHTML = latest
+    ? `<p><strong>最近执行：</strong>${escapeHTML(latest.taskId)} · ${escapeHTML(latest.status)} · ${escapeHTML(new Date(latest.at).toLocaleString("zh-CN"))}</p>`
+    : "<p>暂无执行记录。</p>";
+}
+
+async function loadTasks() {
+  try {
+    const response = await fetch("/api/tasks");
+    renderTasks(await response.json());
+  } catch {
+    outputs.tasks.innerHTML = "<p>定时任务状态读取失败。</p>";
+  }
+}
+
+async function runTask(taskId) {
+  outputs.tasks.innerHTML = "<p>任务执行中...</p>";
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/run`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "task failed");
+    }
+    outputs.tasks.innerHTML = `<p><strong>执行完成：</strong>${escapeHTML(taskId)}</p>`;
+    await loadTasks();
+  } catch {
+    outputs.tasks.innerHTML = "<p>任务执行失败，请检查后端日志或微信 Webhook 配置。</p>";
+  }
+}
+
 $("#generateAll").addEventListener("click", generateAll);
 $("#answerQuestion").addEventListener("click", answerQuestion);
+$("#generateWechatReply")?.addEventListener("click", () => handleWechatInteraction(false));
+$("#pushWechatReply")?.addEventListener("click", () => handleWechatInteraction(true));
+$("#refreshTasks")?.addEventListener("click", loadTasks);
+$("#taskList")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-task-id]");
+  if (button) {
+    runTask(button.dataset.taskId);
+  }
+});
 $("#copyReport").addEventListener("click", async () => {
   await navigator.clipboard.writeText(outputs.report.textContent);
   $("#copyReport").textContent = "已复制";
@@ -281,3 +383,5 @@ Object.values(fields).forEach((field) => {
 });
 
 renderWorkflow(localFallback(getData()));
+loadWechatStatus();
+loadTasks();
