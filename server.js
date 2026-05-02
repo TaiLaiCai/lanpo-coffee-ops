@@ -53,6 +53,13 @@ const agentFiles = {
   service: "service.md",
   manager: "manager.md",
 };
+const agentWorkflow = [
+  { step: 1, id: "data", name: "数据 Agent", dependsOn: [] },
+  { step: 2, id: "product", name: "产品 Agent", dependsOn: ["data"] },
+  { step: 3, id: "content", name: "内容 Agent", dependsOn: ["data", "product"], parallelGroup: "growth-and-service" },
+  { step: 3, id: "service", name: "客服 Agent", dependsOn: ["product"], parallelGroup: "growth-and-service" },
+  { step: 4, id: "manager", name: "店长总控 Agent", dependsOn: ["data", "product", "content", "service"] },
+];
 
 function loadAgentInstructions() {
   const agentsDir = path.join(process.cwd(), "agents");
@@ -294,6 +301,7 @@ app.get("/api/health", (_req, res) => {
     model: provider === "minimax" || provider === "openai" ? model : null,
     provider,
     agents: Object.keys(agentInstructions),
+    workflow: agentWorkflow,
     configured: {
       minimax: Boolean(process.env.MINIMAX_API_KEY),
       openai: Boolean(process.env.OPENAI_API_KEY),
@@ -304,6 +312,7 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/agents", (_req, res) => {
   res.json({
+    workflow: agentWorkflow,
     agents: Object.entries(agentInstructions).map(([name, instruction]) => ({
       name,
       file: agentFiles[name],

@@ -43,6 +43,20 @@ http://localhost:3000
 
 后端默认使用 MiniMax 的 OpenAI-compatible Chat Completions API，密钥只放在服务器环境变量里，不暴露到浏览器。
 
+当前 Agent 编排顺序固定为：
+
+```text
+数据 Agent
+  ↓
+产品 Agent
+  ↓
+内容 Agent + 客服 Agent
+  ↓
+店长总控 Agent
+```
+
+其中内容 Agent 和客服 Agent 会在产品 Agent 输出后并行执行；店长总控 Agent 最后读取全部结果，输出今日判断、日报和执行清单。
+
 ## sandlabs.cn 部署
 
 服务器上执行：
@@ -52,6 +66,20 @@ curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scr
 ```
 
 脚本会安装依赖、提示输入 MiniMax API Key、启动 systemd 服务，并让 Nginx 反代到 Node Agent 服务。
+
+部署脚本也会在服务器安装 MiniMax 官方 `Mini-Agent` 运行工具：
+
+- 安装 `uv`
+- 安装或升级 `mini-agent`
+- 写入 `/root/.mini-agent/config/config.yaml`
+- 默认工作区指向 `/opt/lanpo-coffee-ops`
+
+安装后可在服务器上验证：
+
+```bash
+mini-agent --version
+mini-agent --workspace /opt/lanpo-coffee-ops
+```
 
 ## 下一阶段可接入
 
@@ -90,4 +118,10 @@ sudo systemctl restart lanpo-coffee-ops
 
 ```bash
 curl -s http://127.0.0.1:3000/api/agents
+```
+
+查看服务当前运行模式和 Agent 链路：
+
+```bash
+curl -s http://127.0.0.1:3000/api/health
 ```

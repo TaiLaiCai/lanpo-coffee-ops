@@ -21,7 +21,19 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 apt-get update
-apt-get install -y git nginx
+apt-get install -y curl git nginx python3
+
+if ! command -v uv >/dev/null 2>&1; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+
+export PATH="/root/.local/bin:$PATH"
+
+if ! command -v mini-agent >/dev/null 2>&1; then
+  uv tool install git+https://github.com/MiniMax-AI/Mini-Agent.git
+else
+  uv tool upgrade mini-agent || true
+fi
 
 if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" pull --ff-only
@@ -44,6 +56,25 @@ MINIMAX_MODEL=MiniMax-M2.7
 PORT=$PORT
 ENV
 fi
+
+MINI_AGENT_CONFIG_DIR="/root/.mini-agent/config"
+MINI_AGENT_CONFIG="$MINI_AGENT_CONFIG_DIR/config.yaml"
+mkdir -p "$MINI_AGENT_CONFIG_DIR"
+MINIMAX_API_KEY_FOR_CONFIG="$(grep -E '^MINIMAX_API_KEY=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
+MINIMAX_BASE_URL_FOR_CONFIG="$(grep -E '^MINIMAX_BASE_URL=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
+MINIMAX_MODEL_FOR_CONFIG="$(grep -E '^MINIMAX_MODEL=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
+MINI_AGENT_API_BASE="${MINIMAX_BASE_URL_FOR_CONFIG%/}"
+MINI_AGENT_API_BASE="${MINI_AGENT_API_BASE%/v1}"
+
+cat > "$MINI_AGENT_CONFIG" <<YAML
+api_key: "$MINIMAX_API_KEY_FOR_CONFIG"
+api_base: "${MINI_AGENT_API_BASE:-https://api.minimaxi.com}"
+model: "${MINIMAX_MODEL_FOR_CONFIG:-MiniMax-M2.7}"
+max_steps: 100
+workspace_dir: "$APP_DIR"
+YAML
+
+chmod 600 "$MINI_AGENT_CONFIG"
 
 cat > /etc/systemd/system/lanpo-coffee-ops.service <<SERVICE
 [Unit]
