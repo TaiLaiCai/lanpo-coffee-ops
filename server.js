@@ -1,5 +1,6 @@
 import express from "express";
 import OpenAI from "openai";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -19,9 +20,11 @@ const model =
     : process.env.OPENAI_MODEL || "gpt-5.2";
 const client = provider === "openai" ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const agentTimeoutMs = Number(process.env.AGENT_TIMEOUT_MS || 45000);
+const agentsAdminPassword = process.env.AGENTS_ADMIN_PASSWORD || "6666";
+const authSecret = process.env.AGENTS_AUTH_SECRET || process.env.MINIMAX_API_KEY || process.env.OPENAI_API_KEY || "lanpo-local";
 
 app.use(express.json({ limit: "1mb" }));
-app.use(express.static(process.cwd(), { extensions: ["html"] }));
+app.use(express.urlencoded({ extended: false }));
 
 function validateKey(name, value) {
   if (!value) {
@@ -109,6 +112,142 @@ function extractJson(text) {
     }
     return JSON.parse(match[0]);
   }
+}
+
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function parseCookies(header = "") {
+  return Object.fromEntries(
+    header
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        if (index === -1) {
+          return [part, ""];
+        }
+
+        return [decodeURIComponent(part.slice(0, index)), decodeURIComponent(part.slice(index + 1))];
+      }),
+  );
+}
+
+function agentsAuthToken() {
+  return crypto.createHmac("sha256", authSecret).update(`agents:${agentsAdminPassword}`).digest("hex");
+}
+
+function isAgentsAdmin(req) {
+  return parseCookies(req.headers.cookie).lanpo_agents_auth === agentsAuthToken();
+}
+
+function renderAgentsLogin(error = "") {
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent 管理面板登录</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="admin-page">
+    <main class="admin-login">
+      <section class="module admin-card">
+        <p class="eyebrow">蓝珀咖啡</p>
+        <h1>Agent 管理面板</h1>
+        <form method="post" action="/agents/login" class="admin-form">
+          <label>
+            <span>管理密码</span>
+            <input name="password" type="password" inputmode="numeric" autocomplete="current-password" autofocus />
+          </label>
+          ${error ? `<p class="admin-error">${escapeHTML(error)}</p>` : ""}
+          <button class="primary-action" type="submit">进入面板</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>`;
+}
+
+function renderAgentsPanel() {
+  const workflow = agentWorkflow
+    .map((agent) => {
+      const dependsOn = agent.dependsOn.length ? agent.dependsOn.join("、") : "起点";
+      return `<article>
+        <span>${String(agent.step).padStart(2, "0")}</span>
+        <h3>${escapeHTML(agent.name)}</h3>
+        <p>依赖：${escapeHTML(dependsOn)}</p>
+      </article>`;
+    })
+    .join("");
+
+  const agentCards = Object.entries(agentInstructions)
+    .map(([name, instruction]) => `<article class="module admin-agent">
+      <div class="module-head">
+        <div>
+          <p class="eyebrow">${escapeHTML(name)}</p>
+          <h2>${escapeHTML(agentFiles[name])}</h2>
+        </div>
+      </div>
+      <pre class="report">${escapeHTML(instruction)}</pre>
+    </article>`)
+    .join("");
+
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent 管理面板</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="workspace admin-workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">管理面板</p>
+          <h1>蓝珀咖啡 Agent 总控</h1>
+        </div>
+        <a class="ghost-action admin-link-button" href="/agents/logout">退出</a>
+      </header>
+
+      <section class="module">
+        <div class="module-head">
+          <div>
+            <p class="eyebrow">运行状态</p>
+            <h2>${escapeHTML(provider === "minimax" || provider === "openai" ? `${provider}-agents` : "local-fallback")}</h2>
+          </div>
+          <span class="status">${escapeHTML(model || "本地兜底")}</span>
+        </div>
+        <div class="output">
+          <p><strong>Provider：</strong>${escapeHTML(provider)}</p>
+          <p><strong>MiniMax：</strong>${process.env.MINIMAX_API_KEY ? "已配置" : "未配置"}</p>
+          <p><strong>OpenAI：</strong>${process.env.OPENAI_API_KEY ? "已配置" : "未配置"}</p>
+          ${providerError ? `<p><strong>配置提示：</strong>${escapeHTML(providerError)}</p>` : ""}
+        </div>
+      </section>
+
+      <section class="agents">
+        <div class="section-title">
+          <div>
+            <p class="eyebrow">协作链路</p>
+            <h2>数据 → 产品 → 内容 / 客服 → 店长总控</h2>
+          </div>
+        </div>
+        <div class="agent-grid">${workflow}</div>
+      </section>
+
+      <section class="admin-agent-list">${agentCards}</section>
+    </main>
+  </body>
+</html>`;
 }
 
 function minimaxEndpoint() {
@@ -293,6 +432,37 @@ ${product}
 老板提醒：
 今天重点看进店流量、低峰杯量和内容到店转化。`;
 }
+
+app.get("/agents", (req, res) => {
+  if (!isAgentsAdmin(req)) {
+    res.status(401).send(renderAgentsLogin());
+    return;
+  }
+
+  res.send(renderAgentsPanel());
+});
+
+app.post("/agents/login", (req, res) => {
+  if (String(req.body?.password || "") !== agentsAdminPassword) {
+    res.status(401).send(renderAgentsLogin("密码不正确"));
+    return;
+  }
+
+  res.cookie("lanpo_agents_auth", agentsAuthToken(), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 1000 * 60 * 60 * 12,
+  });
+  res.redirect("/agents");
+});
+
+app.get("/agents/logout", (_req, res) => {
+  res.clearCookie("lanpo_agents_auth");
+  res.redirect("/agents");
+});
+
+app.use(express.static(process.cwd(), { extensions: ["html"] }));
 
 app.get("/api/health", (_req, res) => {
   res.json({

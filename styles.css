@@ -288,6 +288,77 @@ textarea {
   padding: 12px;
 }
 
+.admin-page {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.admin-login {
+  width: min(100%, 460px);
+}
+
+.admin-card {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid rgba(120, 210, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(3, 11, 20, 0.8);
+  color: var(--ink);
+  outline: none;
+}
+
+.admin-form input:focus {
+  border-color: rgba(70, 199, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(70, 199, 255, 0.12);
+}
+
+.admin-error {
+  margin: 0;
+  color: #ffd2d2;
+}
+
+.admin-workspace {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.admin-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.admin-agent-list {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-agent .report {
+  min-height: 240px;
+  max-height: 420px;
+}
+
 .control-grid,
 .two-column {
   display: grid;

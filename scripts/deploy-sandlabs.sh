@@ -55,8 +55,13 @@ if [ ! -f "$APP_DIR/.env" ] || ! grep -Eq '^(MINIMAX_API_KEY|OPENAI_API_KEY)=' "
 MINIMAX_API_KEY=$MINIMAX_API_KEY
 MINIMAX_BASE_URL=https://api.minimaxi.com/v1
 MINIMAX_MODEL=MiniMax-M2.7
+AGENTS_ADMIN_PASSWORD=6666
 PORT=$PORT
 ENV
+fi
+
+if ! grep -Eq '^AGENTS_ADMIN_PASSWORD=' "$APP_DIR/.env"; then
+  printf '\nAGENTS_ADMIN_PASSWORD=6666\n' >> "$APP_DIR/.env"
 fi
 
 MINI_AGENT_CONFIG_DIR="/root/.mini-agent/config"

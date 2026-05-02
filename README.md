@@ -35,6 +35,19 @@ http://localhost:3000
 
 没有配置 `MINIMAX_API_KEY` 时，系统会自动使用本地规则兜底；配置后会启用真实多 Agent 工作流。
 
+管理面板地址：
+
+```text
+https://sandlabs.cn/agents
+```
+
+默认密码是 `6666`。如果要修改，更新服务器 `/opt/lanpo-coffee-ops/.env`：
+
+```bash
+AGENTS_ADMIN_PASSWORD=新密码
+sudo systemctl restart lanpo-coffee-ops
+```
+
 ## 多 Agent 工作流
 
 - `POST /api/workflows/daily`：每日晨会，依次调用数据、产品、内容、客服、总控 Agent
