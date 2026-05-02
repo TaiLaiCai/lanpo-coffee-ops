@@ -4,6 +4,8 @@ set -euo pipefail
 APP_DIR="/opt/lanpo-coffee-ops"
 REPO_URL="https://github.com/TaiLaiCai/lanpo-coffee-ops.git"
 PORT="${PORT:-3000}"
+DOMAIN="${DOMAIN:-sandlabs.cn}"
+WWW_DOMAIN="${WWW_DOMAIN:-www.sandlabs.cn}"
 
 if [ "$(id -u)" -ne 0 ]; then
   if [ -f "$0" ]; then
@@ -23,7 +25,7 @@ fi
 NODE_BIN="$(command -v node)"
 
 apt-get update
-apt-get install -y curl git nginx python3
+apt-get install -y certbot curl git nginx python3 python3-certbot-nginx
 
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -105,7 +107,7 @@ SERVICE
 cat > /etc/nginx/sites-available/sandlabs.cn <<NGINX
 server {
   listen 80;
-  server_name sandlabs.cn www.sandlabs.cn;
+  server_name $DOMAIN $WWW_DOMAIN;
 
   location / {
     proxy_pass http://127.0.0.1:$PORT;
@@ -125,6 +127,19 @@ systemctl enable --now lanpo-coffee-ops
 systemctl restart lanpo-coffee-ops
 nginx -t
 systemctl reload nginx
+
+if ! nginx -T 2>/dev/null | grep -q "ssl_certificate .*${DOMAIN}"; then
+  echo "正在为 $DOMAIN 配置 HTTPS 证书..."
+  if certbot --nginx -d "$DOMAIN" -d "$WWW_DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+    nginx -t
+    systemctl reload nginx
+  else
+    echo "HTTPS 证书申请失败，HTTP 配置已保留。请确认："
+    echo "1. $DOMAIN 和 $WWW_DOMAIN 的 DNS A 记录指向这台服务器"
+    echo "2. 服务器安全组/防火墙已开放 80 和 443"
+    echo "3. 域名拼写是 sandlabs.cn，不是 sandlasbs.cn"
+  fi
+fi
 
 echo "部署完成："
 for attempt in $(seq 1 20); do

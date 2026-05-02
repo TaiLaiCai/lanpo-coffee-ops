@@ -87,6 +87,13 @@ curl -fsSL https://raw.githubusercontent.com/TaiLaiCai/lanpo-coffee-ops/main/scr
 
 脚本会安装依赖、提示输入 MiniMax API Key、启动 systemd 服务，并让 Nginx 反代到 Node Agent 服务。
 
+脚本会先配置 HTTP，再尝试自动申请 HTTPS 证书并跳转到 HTTPS。网页打不开时优先确认：
+
+- 域名拼写是 `sandlabs.cn`，不是 `sandlasbs.cn`
+- 域名 A 记录指向服务器公网 IP
+- 服务器安全组/防火墙开放 `80` 和 `443`
+- Node 服务正在监听 `127.0.0.1:3000`
+
 部署脚本也会在服务器安装 MiniMax 官方 `Mini-Agent` 运行工具：
 
 - 安装 `uv`
