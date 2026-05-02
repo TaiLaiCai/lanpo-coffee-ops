@@ -301,7 +301,10 @@ async function loadFeishuStatus() {
   try {
     const response = await fetch("/api/integrations/feishu");
     const data = await response.json();
-    status.textContent = data.configured && data.dailyTable ? "已绑定" : "未绑定";
+    status.textContent = data.configured && (data.summaryTable || data.dailyTable || data.latestAutomationAt) ? "已绑定" : "未绑定";
+    if (outputs.dataSource && data.latestAutomationAt) {
+      outputs.dataSource.innerHTML = `<p><strong>自动化数据：</strong>${escapeHTML(new Date(data.latestAutomationAt).toLocaleString("zh-CN"))}</p>`;
+    }
   } catch {
     status.textContent = "未连接";
   }

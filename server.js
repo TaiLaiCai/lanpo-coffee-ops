@@ -578,6 +578,11 @@ ${product}
 }
 
 function defaultMetrics(overrides = {}) {
+  const latestAutomationMetrics = getLatestAutomationMetrics();
+  if (latestAutomationMetrics && !Object.keys(overrides).length) {
+    return normalizeMetrics(latestAutomationMetrics);
+  }
+
   return normalizeMetrics({
     date: new Date().toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" }),
     weather: "晴天",
@@ -645,6 +650,36 @@ function getRecordField(record, names, fallback = "") {
   return fallback;
 }
 
+function normalizeSummaryRecord(record) {
+  return normalizeMetrics({
+    date: normalizeFeishuText(getRecordField(record || {}, ["日期", "统计日期", "date"], new Date().toLocaleDateString("zh-CN"))),
+    weather: normalizeFeishuText(getRecordField(record || {}, ["天气", "weather"], "晴天")),
+    revenue: getRecordField(record || {}, ["总营业额", "营业额", "堂食营业额", "GMV", "revenue"], 0),
+    cups: getRecordField(record || {}, ["总杯量", "杯量", "堂食杯量", "单量", "cups"], 0),
+    ticket: getRecordField(record || {}, ["客单价", "堂食客单价", "ticket"], 0),
+    views: getRecordField(record || {}, ["总曝光", "72h曝光", "24h曝光", "浏览", "views"], 0),
+    engagement: getRecordField(record || {}, ["互动数", "收藏评论", "点赞收藏评论", "engagement"], 0),
+    mainProducts: normalizeFeishuText(getRecordField(record || {}, ["主销TOP3", "主销产品", "热销产品", "mainProducts"], "美式、拿铁、澳白")),
+    note: normalizeFeishuText(getRecordField(record || {}, ["备注", "经营结论", "note"], "")),
+  });
+}
+
+function getLatestAutomationMetrics() {
+  const config = loadRuntimeConfig();
+  return config.latestAutomationMetrics || null;
+}
+
+function saveLatestAutomationMetrics(metrics, source = "webhook") {
+  const config = loadRuntimeConfig();
+  config.latestAutomationMetrics = {
+    ...normalizeMetrics(metrics),
+    source,
+    receivedAt: new Date().toISOString(),
+  };
+  saveRuntimeConfig(config);
+  return config.latestAutomationMetrics;
+}
+
 function normalizeFeishuText(value) {
   if (Array.isArray(value)) {
     return value.map((item) => item.text || item.name || String(item)).join("、");
@@ -661,6 +696,14 @@ function latestRecord(records, dateFieldNames) {
 }
 
 async function fetchFeishuMetrics() {
+  if (process.env.FEISHU_SUMMARY_TABLE_ID) {
+    const summaryRecords = await fetchFeishuRecords(process.env.FEISHU_SUMMARY_TABLE_ID);
+    const summary = latestRecord(summaryRecords, ["日期", "统计日期", "date"]);
+    if (summary) {
+      return normalizeSummaryRecord(summary);
+    }
+  }
+
   const dailyRecords = await fetchFeishuRecords(process.env.FEISHU_DAILY_TABLE_ID);
   const contentRecords = await fetchFeishuRecords(process.env.FEISHU_CONTENT_TABLE_ID);
   const daily = latestRecord(dailyRecords, ["日期", "date"]);
@@ -1126,11 +1169,15 @@ app.get("/api/integrations/wechat", (_req, res) => {
 });
 
 app.get("/api/integrations/feishu", (_req, res) => {
+  const automationMetrics = getLatestAutomationMetrics();
   res.json({
     configured: Boolean(process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET && process.env.FEISHU_BITABLE_APP_TOKEN),
     appToken: Boolean(process.env.FEISHU_BITABLE_APP_TOKEN),
+    summaryTable: Boolean(process.env.FEISHU_SUMMARY_TABLE_ID),
     dailyTable: Boolean(process.env.FEISHU_DAILY_TABLE_ID),
     contentTable: Boolean(process.env.FEISHU_CONTENT_TABLE_ID),
+    automationWebhook: "/api/data/automation",
+    latestAutomationAt: automationMetrics?.receivedAt || null,
   });
 });
 
@@ -1140,6 +1187,39 @@ app.post("/api/data/feishu/sync", async (_req, res) => {
   } catch (error) {
     res.status(500).json({ error: "feishu_sync_failed", message: error.message });
   }
+});
+
+app.get("/api/data/automation", (_req, res) => {
+  res.json({
+    ok: true,
+    metrics: getLatestAutomationMetrics(),
+  });
+});
+
+app.post("/api/data/automation", (req, res) => {
+  const token = process.env.DATA_WEBHOOK_TOKEN;
+  if (token && req.query.token !== token && req.headers["x-data-token"] !== token) {
+    res.status(403).json({ error: "invalid_token" });
+    return;
+  }
+
+  const payload = req.body?.metrics || req.body || {};
+  const metrics = saveLatestAutomationMetrics(
+    {
+      date: payload.date || payload["日期"] || payload["统计日期"],
+      weather: payload.weather || payload["天气"],
+      revenue: payload.revenue || payload["总营业额"] || payload["营业额"] || payload["堂食营业额"] || payload.GMV,
+      cups: payload.cups || payload["总杯量"] || payload["杯量"] || payload["堂食杯量"] || payload["单量"],
+      ticket: payload.ticket || payload["客单价"] || payload["堂食客单价"],
+      views: payload.views || payload["总曝光"] || payload["72h曝光"] || payload["24h曝光"] || payload["浏览"],
+      engagement: payload.engagement || payload["互动数"] || payload["收藏评论"] || payload["点赞收藏评论"],
+      mainProducts: payload.mainProducts || payload["主销TOP3"] || payload["主销产品"] || payload["热销产品"],
+      note: payload.note || payload["备注"] || payload["经营结论"],
+    },
+    "feishu-automation",
+  );
+
+  res.json({ ok: true, metrics });
 });
 
 app.get("/api/wechat/webhook", (req, res) => {

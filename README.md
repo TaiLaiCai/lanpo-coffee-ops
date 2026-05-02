@@ -164,11 +164,44 @@ sudo systemctl restart lanpo-coffee-ops
 FEISHU_APP_ID=飞书应用 App ID
 FEISHU_APP_SECRET=飞书应用 App Secret
 FEISHU_BITABLE_APP_TOKEN=多维表格 app_token
+FEISHU_SUMMARY_TABLE_ID=每日数据汇总表 table_id
 FEISHU_DAILY_TABLE_ID=每日经营日报 table_id
 FEISHU_CONTENT_TABLE_ID=内容发布数据 table_id
 ```
 
-飞书应用需要能读取多维表格。配置后重启服务，前台“真实数据源”里点击“从飞书同步数据”，会读取最近一条经营日报和内容数据。
+飞书应用需要能读取多维表格。配置后重启服务，前台“真实数据源”里点击“从飞书同步数据”，会优先读取 `FEISHU_SUMMARY_TABLE_ID` 的最新汇总记录；如果没有配置汇总表，则读取经营日报表和内容数据表。
+
+如果你已有“每日数据汇总推送”的飞书自动化：
+
+- 最推荐：让自动化把汇总结果写入一张“每日数据汇总表”，然后把这张表的 `table_id` 配到 `FEISHU_SUMMARY_TABLE_ID`
+- 也可以：让自动化增加一个 HTTP 请求动作，POST 到系统 Webhook
+
+Webhook 地址：
+
+```text
+https://sandlabs.cn/api/data/automation?token=自定义口令
+```
+
+服务器 `.env` 配置：
+
+```bash
+DATA_WEBHOOK_TOKEN=自定义口令
+```
+
+Webhook JSON 字段支持中文字段，例如：
+
+```json
+{
+  "日期": "2026-05-02",
+  "天气": "晴天",
+  "总营业额": 3820,
+  "总杯量": 142,
+  "客单价": 26.9,
+  "总曝光": 12000,
+  "互动数": 228,
+  "主销产品": "冰美式,拿铁,燕麦拿铁"
+}
+```
 
 ## 定时任务
 
