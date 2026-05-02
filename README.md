@@ -208,12 +208,14 @@ Webhook JSON 字段支持中文字段，例如：
 默认按北京时间运行：
 
 ```bash
+DATA_SYNC_TIME=22:00
 DAILY_BRIEF_TIME=09:00
 MEMBER_WAKEUP_TIME=MON 10:00
 ```
 
 任务会在 Node 服务内运行：
 
+- 飞书数据自动读取：每天 22:00 读取飞书汇总表/经营表，保存为系统默认数据源
 - 每日晨会推送：生成当日方案并推送到 `WECHAT_OUTBOUND_WEBHOOK`
 - 会员唤醒提醒：每周一 10:00 推送沉睡会员触达提醒
 

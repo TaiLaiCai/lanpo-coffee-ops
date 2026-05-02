@@ -418,7 +418,7 @@ async function runTask(taskId) {
 }
 
 async function saveTaskSchedule(taskId) {
-  const input = document.querySelector(`[data-task-schedule="${CSS.escape(taskId)}"]`);
+  const input = [...document.querySelectorAll("[data-task-schedule]")].find((item) => item.dataset.taskSchedule === taskId);
   if (!input) return;
 
   outputs.tasks.innerHTML = "<p>正在保存时间...</p>";

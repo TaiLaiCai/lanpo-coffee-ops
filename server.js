@@ -30,6 +30,11 @@ const authSecret = process.env.AGENTS_AUTH_SECRET || process.env.MINIMAX_API_KEY
 const taskRuns = [];
 const taskState = new Map();
 const defaultTaskDefinitions = {
+  "data-sync": {
+    name: "飞书数据自动读取",
+    schedule: process.env.DATA_SYNC_TIME || "22:00",
+    description: "每天读取飞书汇总表/经营表，保存为系统默认数据源。",
+  },
   "daily-brief": {
     name: "每日晨会推送",
     schedule: process.env.DAILY_BRIEF_TIME || "09:00",
@@ -898,6 +903,12 @@ function recordTaskRun(taskId, status, detail) {
 }
 
 async function runScheduledTask(taskId, source = "manual") {
+  if (taskId === "data-sync") {
+    const metrics = await fetchFeishuMetrics();
+    const saved = saveLatestAutomationMetrics(metrics, "feishu-scheduled-sync");
+    return recordTaskRun(taskId, "success", { source, metrics: saved });
+  }
+
   if (taskId === "daily-brief") {
     const workflow = await runDailyWorkflow(defaultMetrics(), "今天适合推什么给老客？");
     const report = workflow.managerAgent?.report || workflow.managerAgent?.summary || "今日方案已生成。";
