@@ -20,6 +20,8 @@ if ! command -v node >/dev/null 2>&1; then
   apt-get install -y nodejs
 fi
 
+NODE_BIN="$(command -v node)"
+
 apt-get update
 apt-get install -y curl git nginx python3
 
@@ -60,9 +62,9 @@ fi
 MINI_AGENT_CONFIG_DIR="/root/.mini-agent/config"
 MINI_AGENT_CONFIG="$MINI_AGENT_CONFIG_DIR/config.yaml"
 mkdir -p "$MINI_AGENT_CONFIG_DIR"
-MINIMAX_API_KEY_FOR_CONFIG="$(grep -E '^MINIMAX_API_KEY=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
-MINIMAX_BASE_URL_FOR_CONFIG="$(grep -E '^MINIMAX_BASE_URL=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
-MINIMAX_MODEL_FOR_CONFIG="$(grep -E '^MINIMAX_MODEL=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2-)"
+MINIMAX_API_KEY_FOR_CONFIG="$(grep -E '^MINIMAX_API_KEY=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2- || true)"
+MINIMAX_BASE_URL_FOR_CONFIG="$(grep -E '^MINIMAX_BASE_URL=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2- || true)"
+MINIMAX_MODEL_FOR_CONFIG="$(grep -E '^MINIMAX_MODEL=' "$APP_DIR/.env" | tail -n 1 | cut -d= -f2- || true)"
 MINI_AGENT_API_BASE="${MINIMAX_BASE_URL_FOR_CONFIG%/}"
 MINI_AGENT_API_BASE="${MINI_AGENT_API_BASE%/v1}"
 
@@ -85,7 +87,8 @@ After=network.target
 Type=simple
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
-ExecStart=/usr/bin/node $APP_DIR/server.js
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin
+ExecStart=$NODE_BIN $APP_DIR/server.js
 Restart=always
 RestartSec=3
 User=root
@@ -119,5 +122,17 @@ nginx -t
 systemctl reload nginx
 
 echo "部署完成："
-curl -fsS http://127.0.0.1:$PORT/api/health
+for attempt in $(seq 1 20); do
+  if curl -fsS "http://127.0.0.1:$PORT/api/health"; then
+    echo
+    exit 0
+  fi
+
+  sleep 1
+done
+
 echo
+echo "Node Agent 服务没有在 20 秒内就绪。下面是最近日志："
+systemctl --no-pager --full status lanpo-coffee-ops || true
+journalctl -u lanpo-coffee-ops -n 80 --no-pager || true
+exit 1
