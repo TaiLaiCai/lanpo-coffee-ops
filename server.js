@@ -56,14 +56,16 @@ function validateProviderConfig() {
 const agentFiles = {
   data: "data.md",
   product: "product.md",
+  media: "media.md",
   growth: "growth.md",
   manager: "manager.md",
 };
 const agentWorkflow = [
   { step: 1, id: "data", name: "数据 Agent", dependsOn: [] },
   { step: 2, id: "product", name: "产品 Agent", dependsOn: ["data"] },
-  { step: 3, id: "growth", name: "内容客服 Agent", dependsOn: ["data", "product"] },
-  { step: 4, id: "manager", name: "店长总控 Agent", dependsOn: ["data", "product", "growth"] },
+  { step: 3, id: "media", name: "自媒体 Agent", dependsOn: ["data", "product"], parallelGroup: "market-and-service" },
+  { step: 3, id: "growth", name: "客服私域 Agent", dependsOn: ["data", "product", "media"], parallelGroup: "market-and-service" },
+  { step: 4, id: "manager", name: "店长总控 Agent", dependsOn: ["data", "product", "media", "growth"] },
 ];
 
 function hasOpenClawConfig() {
@@ -71,6 +73,7 @@ function hasOpenClawConfig() {
     process.env.OPENCLAW_BASE_URL ||
       process.env.OPENCLAW_DATA_URL ||
       process.env.OPENCLAW_PRODUCT_URL ||
+      process.env.OPENCLAW_MEDIA_URL ||
       process.env.OPENCLAW_GROWTH_URL ||
       process.env.OPENCLAW_MANAGER_URL,
   );
@@ -251,7 +254,7 @@ function renderAgentsPanel() {
         <div class="section-title">
           <div>
             <p class="eyebrow">协作链路</p>
-            <h2>数据 → 产品 → 内容客服 → 店长总控</h2>
+            <h2>数据 → 产品 → 自媒体 / 客服私域 → 店长总控</h2>
           </div>
         </div>
         <div class="agent-grid">${workflow}</div>
@@ -649,30 +652,23 @@ app.post("/api/workflows/daily", async (req, res) => {
       `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
     );
 
+    const mediaAgent = await runAgent(
+      "media",
+      { metrics, dataAgent, productAgent },
+      `{ "topic": "选题", "title": "标题", "cover": "封面文案", "videoStructure": ["结构"], "body": "小红书正文", "commentGuide": "评论区引导", "conversionLine": "门店转化句" }`,
+    );
+
     const growthAgent = await runAgent(
       "growth",
-      { question, metrics, dataAgent, productAgent },
-      `{
-        "contentAgent": {
-          "topic": "选题",
-          "title": "标题",
-          "cover": "封面文案",
-          "videoStructure": ["结构"],
-          "body": "小红书正文",
-          "commentGuide": "评论区引导"
-        },
-        "serviceAgent": {
-          "question": "顾客问题",
-          "reply": "可直接发送的回复"
-        }
-      }`,
+      { question, metrics, dataAgent, productAgent, mediaAgent },
+      `{ "question": "顾客问题", "reply": "可直接发送的回复", "privateActions": ["私域动作"], "commentReplies": ["评论区回复"] }`,
     );
-    const contentAgent = growthAgent.contentAgent || {};
-    const serviceAgent = growthAgent.serviceAgent || {};
+    const contentAgent = mediaAgent;
+    const serviceAgent = growthAgent.serviceAgent || growthAgent;
 
     const managerAgent = await runAgent(
       "manager",
-      { metrics, dataAgent, productAgent, growthAgent },
+      { metrics, dataAgent, productAgent, mediaAgent, growthAgent },
       `{ "summary": "今日总判断", "priority": ["优先动作"], "report": "完整日报文本" }`,
     );
 
@@ -680,6 +676,7 @@ app.post("/api/workflows/daily", async (req, res) => {
       mode: `${provider}-agents`,
       dataAgent,
       productAgent,
+      mediaAgent,
       growthAgent,
       contentAgent,
       serviceAgent,
@@ -709,23 +706,15 @@ app.post("/api/workflows/customer", async (req, res) => {
       { metrics },
       `{ "heroProduct": "主推产品组合", "audience": ["适合人群"], "avoid": ["避开项"], "staffScript": "员工推荐话术" }`,
     );
+    const mediaAgent = await runAgent(
+      "media",
+      { metrics, productAgent },
+      `{ "topic": "可选内容选题", "title": "可选标题", "cover": "可选封面文案", "videoStructure": ["可选结构"], "body": "可选正文", "commentGuide": "可选评论引导", "conversionLine": "可选门店转化句" }`,
+    );
     const growthAgent = await runAgent(
       "growth",
-      { question, metrics, productAgent },
-      `{
-        "contentAgent": {
-          "topic": "可选内容选题",
-          "title": "可选标题",
-          "cover": "可选封面文案",
-          "videoStructure": ["可选结构"],
-          "body": "可选正文",
-          "commentGuide": "可选评论引导"
-        },
-        "serviceAgent": {
-          "question": "顾客问题",
-          "reply": "可直接发送的回复"
-        }
-      }`,
+      { question, metrics, productAgent, mediaAgent },
+      `{ "question": "顾客问题", "reply": "可直接发送的回复", "privateActions": ["私域动作"], "commentReplies": ["评论区回复"] }`,
     );
 
     res.json(growthAgent.serviceAgent || growthAgent);

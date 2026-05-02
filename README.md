@@ -11,7 +11,8 @@
 
 - 数据复盘 Agent：根据营业额、杯量、客单价、内容数据判断问题
 - 咖啡产品 Agent：推荐主推产品、适合人群和避开项
-- 内容客服 Agent：生成内容选题、正文、评论引导和顾客回复
+- 自媒体 Agent：专门生成小红书、抖音、朋友圈内容和门店转化句
+- 客服私域 Agent：生成顾客回复、评论互动和私域触达建议
 - 店长总控 Agent：汇总经营判断与今日执行动作
 
 ## 本地运行
@@ -56,8 +57,8 @@ sudo systemctl restart lanpo-coffee-ops
 
 ## 多 Agent 工作流
 
-- `POST /api/workflows/daily`：每日晨会，依次调用数据、产品、内容客服、总控 4 个后端 Agent
-- `POST /api/workflows/customer`：顾客咨询，调用产品 Agent 和内容客服 Agent
+- `POST /api/workflows/daily`：每日晨会，依次调用数据、产品、自媒体、客服私域、总控 5 个后端 Agent
+- `POST /api/workflows/customer`：顾客咨询，调用产品 Agent、自媒体 Agent 和客服私域 Agent
 - `GET /api/health`：查看当前运行模式
 
 后端默认使用 MiniMax 的 OpenAI-compatible Chat Completions API，密钥只放在服务器环境变量里，不暴露到浏览器。
@@ -69,16 +70,16 @@ sudo systemctl restart lanpo-coffee-ops
   ↓
 产品 Agent
   ↓
-内容客服 Agent
+自媒体 Agent + 客服私域 Agent
   ↓
 店长总控 Agent
 ```
 
-其中内容客服 Agent 合并原来的内容运营和私域客服职责；店长总控 Agent 最后读取全部结果，输出今日判断、日报和执行清单。
+其中自媒体 Agent 专门负责内容生产，客服私域 Agent 专门负责顾客回复、评论互动和私域触达；店长总控 Agent 最后读取全部结果，输出今日判断、日报和执行清单。
 
 ## OpenClaw 后端
 
-后端优先使用 4 个 OpenClaw Gateway 协作运行；如果未配置 OpenClaw，则回落到 MiniMax/OpenAI 直连或本地兜底。
+后端优先使用 5 个 OpenClaw Gateway 协作运行；如果未配置 OpenClaw，则回落到 MiniMax/OpenAI 直连或本地兜底。
 
 默认环境变量：
 
@@ -86,8 +87,9 @@ sudo systemctl restart lanpo-coffee-ops
 OPENCLAW_MODEL=MiniMax-M2.7
 OPENCLAW_DATA_URL=http://127.0.0.1:18791
 OPENCLAW_PRODUCT_URL=http://127.0.0.1:18792
-OPENCLAW_GROWTH_URL=http://127.0.0.1:18793
-OPENCLAW_MANAGER_URL=http://127.0.0.1:18794
+OPENCLAW_MEDIA_URL=http://127.0.0.1:18793
+OPENCLAW_GROWTH_URL=http://127.0.0.1:18794
+OPENCLAW_MANAGER_URL=http://127.0.0.1:18795
 ```
 
 也可以只配置一个统一网关：
@@ -132,7 +134,7 @@ mini-agent --workspace /opt/lanpo-coffee-ops
 ## 下一阶段可接入
 
 - 飞书多维表格：读取每日营业额、杯量、客单价、内容数据
-- OpenClaw Gateway：4 个后端 Agent 节点协作运行
+- OpenClaw Gateway：5 个后端 Agent 节点协作运行
 - 微信 / 企微：接入私域客服回复
 - 小红书 / 抖音：生成内容后进入人工审核发布
 - Vercel / 服务器：部署成可访问的运营后台
@@ -148,12 +150,13 @@ mini-agent --workspace /opt/lanpo-coffee-ops
 
 ## Agent 文件化管理
 
-4 个后端 Agent 已拆分到 `agents/` 目录：
+5 个后端 Agent 已拆分到 `agents/` 目录：
 
 - `agents/manager.md`：店长总控 Agent，负责最终取舍、日报和执行清单
 - `agents/data.md`：数据复盘 Agent，负责经营判断和预警
 - `agents/product.md`：咖啡产品 Agent，负责产品推荐、专业校验和员工话术
-- `agents/growth.md`：内容客服 Agent，负责内容增长、评论区、私域和顾客回复
+- `agents/media.md`：自媒体 Agent，负责小红书、抖音、朋友圈内容和门店转化句
+- `agents/growth.md`：客服私域 Agent，负责顾客回复、评论区互动和私域触达
 
 后端启动时会读取这些 Markdown 文件。修改某个 Agent 的职责或个性后，重启服务即可生效：
 
